@@ -12,13 +12,6 @@ const Color _border = Color(0xFF253247);
 const Color _mint = Color(0xFF63E6BE);
 const Color _muted = Color(0xFF92A0B8);
 
-Color _colorWithOpacity(Color color, double opacity) => Color.fromARGB(
-      (opacity.clamp(0, 1) * 255).round(),
-      color.red,
-      color.green,
-      color.blue,
-    );
-
 class DashboardPage extends StatefulWidget {
   const DashboardPage({super.key, required this.controller});
 
@@ -232,12 +225,14 @@ class _RoleBadge extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final color = isMaster ? _mint : const Color(0xFF8CA8FF);
+    final badgeFill = isMaster ? const Color(0x1F63E6BE) : const Color(0x1F8CA8FF);
+    final badgeBorder = isMaster ? const Color(0x6663E6BE) : const Color(0x668CA8FF);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 7),
       decoration: BoxDecoration(
-        color: _colorWithOpacity(color, .12),
+        color: badgeFill,
         borderRadius: BorderRadius.circular(30),
-        border: Border.all(color: _colorWithOpacity(color, .4)),
+        border: Border.all(color: badgeBorder),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -283,7 +278,7 @@ class _InfoChip extends StatelessWidget {
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: <Widget>[
-            Icon(icon, size: 14, color: _colorWithOpacity(_mint, .9)),
+            Icon(icon, size: 14, color: const Color(0xE663E6BE)),
             const SizedBox(width: 6),
             Flexible(
               child: Text(
@@ -393,7 +388,7 @@ class _PeerPanel extends StatelessWidget {
             trailing: Container(
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
               decoration: BoxDecoration(
-                color: _colorWithOpacity(_mint, .12),
+                color: const Color(0x1F63E6BE),
                 borderRadius: BorderRadius.circular(8),
               ),
               child: Text(
@@ -452,7 +447,7 @@ class _PeerTile extends StatelessWidget {
             width: 34,
             height: 34,
             decoration: BoxDecoration(
-              color: _colorWithOpacity(accent, .13),
+              color: linked ? const Color(0x2163E6BE) : const Color(0x2171809B),
               borderRadius: BorderRadius.circular(11),
             ),
             child: Icon(Icons.devices_rounded, size: 17, color: accent),
@@ -659,6 +654,13 @@ class _LogLine extends StatelessWidget {
       'DATA' => _mint,
       _ => const Color(0xFF93A0B5),
     };
+    final tint = switch (entry.level) {
+      'ERROR' => const Color(0x1FFF8585),
+      'WARN' => const Color(0x1FFFC977),
+      'PEER' => const Color(0x1F9DAFFF),
+      'DATA' => const Color(0x1F63E6BE),
+      _ => const Color(0x1F93A0B5),
+    };
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 5),
       child: Row(
@@ -674,7 +676,7 @@ class _LogLine extends StatelessWidget {
             alignment: Alignment.center,
             padding: const EdgeInsets.symmetric(vertical: 2),
             decoration: BoxDecoration(
-              color: _colorWithOpacity(color, .12),
+              color: tint,
               borderRadius: BorderRadius.circular(5),
             ),
             child: Text(
@@ -715,7 +717,7 @@ class _PanelHeading extends StatelessWidget {
             width: 33,
             height: 33,
             decoration: BoxDecoration(
-              color: _colorWithOpacity(_mint, .09),
+              color: const Color(0x1763E6BE),
               borderRadius: BorderRadius.circular(10),
             ),
             child: Icon(icon, size: 17, color: _mint),
@@ -788,7 +790,7 @@ class _GlassPanel extends StatelessWidget {
         decoration: BoxDecoration(
           color: _panel,
           borderRadius: BorderRadius.circular(18),
-          border: Border.all(color: _colorWithOpacity(_border, .9)),
+          border: Border.all(color: const Color(0xE6253247)),
           boxShadow: const <BoxShadow>[
             BoxShadow(color: Color(0x22000000), blurRadius: 20, offset: Offset(0, 8)),
           ],
