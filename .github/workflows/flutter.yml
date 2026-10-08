@@ -1,0 +1,41 @@
+name: Flutter CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - arena/028ea2fd-airbridge
+
+permissions:
+  contents: read
+
+jobs:
+  analyze-test-android:
+    name: Analyze, test, and build Android debug APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    defaults:
+      run:
+        working-directory: airbridge_mobile
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter stable
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Bootstrap platform projects and resolve dependencies
+        run: ./tool/bootstrap_platforms.sh
+
+      - name: Analyze Dart sources
+        run: flutter analyze
+
+      - name: Run unit tests
+        run: flutter test --reporter expanded
+
+      - name: Build Android debug APK
+        run: flutter build apk --debug
