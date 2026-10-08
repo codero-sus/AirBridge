@@ -79,7 +79,7 @@ void main() {
       onLog: (_, __) {},
       onConnectionsChanged: () {},
     );
-    final client = HttpClient();
+    final client = HttpClient()..findProxy = (_) => 'DIRECT';
     await gateway.start();
     addTearDown(() async {
       client.close(force: true);
@@ -89,9 +89,14 @@ void main() {
 
     final statusRequest = await client.getUrl(Uri.parse('http://127.0.0.1:$port/status'));
     final statusResponse = await statusRequest.close();
-    final status = jsonDecode(await utf8.decoder.bind(statusResponse).join())
-        as Map<String, dynamic>;
+    final statusBody = await utf8.decoder.bind(statusResponse).join();
     expect(statusResponse.statusCode, HttpStatus.ok);
+    expect(
+      statusBody,
+      isNotEmpty,
+      reason: 'GET /status returned an empty body (${statusResponse.headers.contentType}).',
+    );
+    final status = jsonDecode(statusBody) as Map<String, dynamic>;
     expect(status['deviceId'], _leftId);
     expect(status['bindAddress'], '0.0.0.0');
     expect(status['role'], 'master');
@@ -133,11 +138,16 @@ void main() {
     expect(replayResponse.statusCode, HttpStatus.unauthorized);
     expect(received, hasLength(1));
 
-    final webSocket = await WebSocket.connect('ws://127.0.0.1:$port/ws');
+    final webSocketClient = HttpClient()..findProxy = (_) => 'DIRECT';
+    final webSocket = await WebSocket.connect(
+      'ws://127.0.0.1:$port/ws',
+      customClient: webSocketClient,
+    );
     final iterator = StreamIterator<dynamic>(webSocket);
     addTearDown(() async {
       await iterator.cancel();
       await webSocket.close();
+      webSocketClient.close(force: true);
     });
     expect(await iterator.moveNext().timeout(const Duration(seconds: 3)), isTrue);
     final challenge = jsonDecode(iterator.current as String) as Map<String, dynamic>;
