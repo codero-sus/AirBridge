@@ -90,7 +90,11 @@ void main() {
     final statusRequest = await client.getUrl(Uri.parse('http://127.0.0.1:$port/status'));
     final statusResponse = await statusRequest.close();
     final statusBody = await utf8.decoder.bind(statusResponse).join();
-    expect(statusResponse.statusCode, HttpStatus.ok);
+    expect(
+      statusResponse.statusCode,
+      HttpStatus.ok,
+      reason: 'GET /status returned ${statusResponse.statusCode} with body: $statusBody',
+    );
     expect(
       statusBody,
       isNotEmpty,
