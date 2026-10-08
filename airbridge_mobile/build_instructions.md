@@ -161,3 +161,52 @@ The WebSocket endpoint is `ws://<node-ip>:8765/ws`. The server first sends a ran
 ## Ports and network constraints
 
 Defaults are TCP `8765` and UDP `47660`, configurable with `--dart-define=AIRBRIDGE_HTTP_PORT=...` and `--dart-define=AIRBRIDGE_UDP_PORT=...` (use the same UDP port across a LAN). Both listeners bind to `0.0.0.0`. UDP beacons advertise the service identifier `_airbridge._tcp.local.` and include the node's TCP port. Wi-Fi AP/client isolation, VPNs, host firewalls, iOS Local Network consent, and Android battery/background policies can prevent discovery or continuous availability.
+
+## 10. Troubleshooting
+
+### Peers do not appear
+
+1. Put both devices on the same reachable LAN/subnet. Guest Wi-Fi, VPNs, and router/AP **client isolation** commonly block peer traffic.
+2. Use the same UDP port (`47660` by default) on every peer and allow inbound UDP on that port. Also allow inbound TCP (`8765` by default) for API/WebSocket traffic.
+3. If a shared secret is configured, rebuild **every peer** with the same `AIRBRIDGE_SHARED_SECRET`. Discovery beacons are authenticated; a mismatched key causes them to be ignored. Changing the environment variable does not alter an already-built app.
+4. Keep the app open in the foreground while testing. Check the dashboard's System log for startup or socket errors.
+
+On Windows, inspect listeners from PowerShell:
+
+```powershell
+Get-NetTCPConnection -LocalPort 8765 -State Listen -ErrorAction SilentlyContinue
+Get-NetUDPEndpoint -LocalPort 47660 -ErrorAction SilentlyContinue
+Test-NetConnection <peer-ip> -Port 8765
+```
+
+If Windows Firewall blocks Airbridge, allow the app on the **Private** profile, or (from an elevated PowerShell prompt) add narrowly scoped rules:
+
+```powershell
+New-NetFirewallRule -DisplayName 'Airbridge TCP 8765' -Direction Inbound -Action Allow -Protocol TCP -LocalPort 8765 -Profile Private
+New-NetFirewallRule -DisplayName 'Airbridge UDP 47660' -Direction Inbound -Action Allow -Protocol UDP -LocalPort 47660 -Profile Private
+```
+
+For Linux with UFW, allow the corresponding ports with `sudo ufw allow 8765/tcp` and `sudo ufw allow 47660/udp`. On macOS, grant Local Network access and allow the app through the system firewall.
+
+### `/status` works, but writes fail
+
+* `401 Unauthorized`: with a shared secret, check that the HMAC uses the exact request body bytes, current Unix timestamp in seconds, a fresh nonce, and the same secret as the node. Requests older than 120 seconds and reused nonces are rejected. See the signed `curl` example above.
+* `400 Bad Request`: send a JSON object with a `payload` field, for example `{"payload":{"text":"hello"}}`.
+* `413 Payload Too Large`: the encoded payload exceeds `AIRBRIDGE_MAX_PAYLOAD_BYTES` (1 MiB by default). Increase it at build time only if needed; the supported range is 1 KiB to 16 MiB.
+* `503 Service Unavailable`: the bounded background queue is full. Retry after the node drains pending encryption/file tasks.
+
+### Port already in use / node fails to start
+
+The dashboard log should show the bind error. On Windows, find the process using a port with `netstat -ano | findstr :8765` or `netstat -ano | findstr :47660`, then stop that process or rebuild with alternate ports, for example `--dart-define=AIRBRIDGE_HTTP_PORT=8766 --dart-define=AIRBRIDGE_UDP_PORT=47661`. Configure the same UDP port on every peer. Ports below 1024 are rejected.
+
+### WebSocket does not connect
+
+The client must connect to `ws://<peer-ip>:8765/ws`, read the server's first `challenge` frame, reply with the HMAC-authenticated `auth` frame described above, then wait for `hello`. Check that TCP `8765` is reachable and that both nodes use the same secret. In open-LAN mode, the auth frame still needs a `deviceId`, but no signature is required.
+
+### Platform-specific build problems
+
+* **Windows:** confirm Visual Studio 2022's Desktop development with C++ workload is installed. If Flutter reports symlink permission errors, enable Windows Developer Mode and rerun the bootstrap script. Deploy the entire `build\windows\x64\runner\Release\` folder, not just the `.exe`.
+* **Android:** if discovery stops when backgrounded, exempt the app from aggressive battery optimization while testing. The MulticastLock is acquired while the app runs, but this build does not install a persistent Android foreground service.
+* **iOS:** grant Local Network permission. A configured entitlement file alone is insufficient for multicast; the App ID and provisioning profile must have Apple's multicast entitlement. Keep the app foregrounded.
+* **Linux/macOS:** install the prerequisites in sections 1 and 6/7; on macOS, approve the Local Network prompt and use Xcode signing for a distributable app.
+* **After dependency or Flutter changes:** from `airbridge_mobile/`, run `flutter clean`, `flutter pub get`, then rerun `tool/bootstrap_platforms.ps1` on Windows or `tool/bootstrap_platforms.sh` on Linux/macOS to reapply native configuration.
