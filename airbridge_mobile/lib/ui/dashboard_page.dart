@@ -12,6 +12,13 @@ const Color _border = Color(0xFF253247);
 const Color _mint = Color(0xFF63E6BE);
 const Color _muted = Color(0xFF92A0B8);
 
+Color _colorWithOpacity(Color color, double opacity) => Color.fromARGB(
+      (opacity.clamp(0, 1) * 255).round(),
+      color.red,
+      color.green,
+      color.blue,
+    );
+
 class DashboardPage extends StatefulWidget {
   const DashboardPage({super.key, required this.controller});
 
@@ -228,9 +235,9 @@ class _RoleBadge extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 7),
       decoration: BoxDecoration(
-        color: color.withOpacity(.12),
+        color: _colorWithOpacity(color, .12),
         borderRadius: BorderRadius.circular(30),
-        border: Border.all(color: color.withOpacity(.4)),
+        border: Border.all(color: _colorWithOpacity(color, .4)),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -276,7 +283,7 @@ class _InfoChip extends StatelessWidget {
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: <Widget>[
-            Icon(icon, size: 14, color: _mint.withOpacity(.9)),
+            Icon(icon, size: 14, color: _colorWithOpacity(_mint, .9)),
             const SizedBox(width: 6),
             Flexible(
               child: Text(
@@ -386,7 +393,7 @@ class _PeerPanel extends StatelessWidget {
             trailing: Container(
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
               decoration: BoxDecoration(
-                color: _mint.withOpacity(.12),
+                color: _colorWithOpacity(_mint, .12),
                 borderRadius: BorderRadius.circular(8),
               ),
               child: Text(
@@ -445,7 +452,7 @@ class _PeerTile extends StatelessWidget {
             width: 34,
             height: 34,
             decoration: BoxDecoration(
-              color: accent.withOpacity(.13),
+              color: _colorWithOpacity(accent, .13),
               borderRadius: BorderRadius.circular(11),
             ),
             child: Icon(Icons.devices_rounded, size: 17, color: accent),
@@ -667,7 +674,7 @@ class _LogLine extends StatelessWidget {
             alignment: Alignment.center,
             padding: const EdgeInsets.symmetric(vertical: 2),
             decoration: BoxDecoration(
-              color: color.withOpacity(.12),
+              color: _colorWithOpacity(color, .12),
               borderRadius: BorderRadius.circular(5),
             ),
             child: Text(
@@ -708,7 +715,7 @@ class _PanelHeading extends StatelessWidget {
             width: 33,
             height: 33,
             decoration: BoxDecoration(
-              color: _mint.withOpacity(.09),
+              color: _colorWithOpacity(_mint, .09),
               borderRadius: BorderRadius.circular(10),
             ),
             child: Icon(icon, size: 17, color: _mint),
@@ -781,7 +788,7 @@ class _GlassPanel extends StatelessWidget {
         decoration: BoxDecoration(
           color: _panel,
           borderRadius: BorderRadius.circular(18),
-          border: Border.all(color: _border.withOpacity(.9)),
+          border: Border.all(color: _colorWithOpacity(_border, .9)),
           boxShadow: const <BoxShadow>[
             BoxShadow(color: Color(0x22000000), blurRadius: 20, offset: Offset(0, 8)),
           ],
