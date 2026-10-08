@@ -32,7 +32,17 @@ jobs:
         run: bash ./tool/bootstrap_platforms.sh
 
       - name: Analyze Dart sources
-        run: flutter analyze
+        shell: bash
+        run: |
+          set +e
+          flutter analyze 2>&1 | tee /tmp/flutter-analyze.log
+          analyze_exit=${PIPESTATUS[0]}
+          if [[ $analyze_exit -ne 0 ]]; then
+            while IFS= read -r diagnostic; do
+              [[ -z "$diagnostic" ]] || echo "::error::$diagnostic"
+            done < /tmp/flutter-analyze.log
+          fi
+          exit "$analyze_exit"
 
       - name: Run unit tests
         run: flutter test --reporter expanded
