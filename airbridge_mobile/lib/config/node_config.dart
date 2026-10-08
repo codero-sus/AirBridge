@@ -17,6 +17,31 @@ class NodeConfig {
     required this.peerTimeoutSeconds,
   });
 
+  factory NodeConfig.forTesting({
+    required String deviceId,
+    required String deviceName,
+    required Directory supportDirectory,
+    required Directory messageDirectory,
+    required int httpPort,
+    int udpPort = 47660,
+    String sharedSecret = '',
+    int maxPayloadBytes = 1048576,
+    int heartbeatSeconds = 3,
+    int peerTimeoutSeconds = 12,
+  }) =>
+      NodeConfig._(
+        deviceId: deviceId,
+        deviceName: deviceName,
+        supportDirectory: supportDirectory,
+        messageDirectory: messageDirectory,
+        httpPort: httpPort,
+        udpPort: udpPort,
+        sharedSecret: sharedSecret,
+        maxPayloadBytes: maxPayloadBytes,
+        heartbeatSeconds: heartbeatSeconds,
+        peerTimeoutSeconds: peerTimeoutSeconds,
+      );
+
   static const String serviceType = '_airbridge._tcp.local.';
   static const int protocolVersion = 1;
 
