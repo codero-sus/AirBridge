@@ -103,22 +103,25 @@ class DiscoveryService {
       );
       for (final networkInterface in interfaces) {
         for (final interfaceAddress in networkInterface.addresses) {
-          final address = interfaceAddress.address;
-          final mask = interfaceAddress.netmask;
-          if (address.type != InternetAddressType.IPv4 ||
-              mask.type != InternetAddressType.IPv4) {
+          final octets = interfaceAddress.address
+              .split('.')
+              .map(int.tryParse)
+              .toList(growable: false);
+          final prefixLength = interfaceAddress.prefixLength;
+          if (octets.length != 4 || prefixLength < 0 || prefixLength > 32 ||
+              octets.any((octet) => octet == null || octet < 0 || octet > 255)) {
             continue;
           }
-          final addressBytes = address.rawAddress;
-          final maskBytes = mask.rawAddress;
-          if (addressBytes.length != 4 || maskBytes.length != 4) continue;
-          final broadcast = List<int>.generate(
-            4,
-            (index) =>
-                (addressBytes[index] & maskBytes[index]) |
-                ((~maskBytes[index]) & 0xff),
-          );
-          _broadcastAddressStrings.add(InternetAddress.fromRawAddress(broadcast).address);
+          final broadcast = List<int>.generate(4, (index) {
+            final bitsInOctet = prefixLength - index * 8;
+            final mask = bitsInOctet >= 8
+                ? 0xff
+                : bitsInOctet <= 0
+                    ? 0
+                    : (0xff << (8 - bitsInOctet)) & 0xff;
+            return (octets[index]! & mask) | ((~mask) & 0xff);
+          });
+          _broadcastAddressStrings.add(broadcast.join('.'));
         }
       }
     } on SocketException catch (error) {

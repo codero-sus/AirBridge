@@ -285,7 +285,7 @@ class NodeController extends ChangeNotifier {
       final candidates = <String>[];
       for (final networkInterface in interfaces) {
         for (final interfaceAddress in networkInterface.addresses) {
-          final address = interfaceAddress.address.address;
+          final address = interfaceAddress.address;
           if (address.startsWith('127.') || address.startsWith('169.254.')) continue;
           candidates.add(address);
         }
