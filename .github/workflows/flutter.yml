@@ -5,7 +5,6 @@ on:
   push:
     branches:
       - main
-      - arena/028ea2fd-airbridge
 
 permissions:
   contents: read
@@ -49,3 +48,64 @@ jobs:
 
       - name: Build Android debug APK
         run: flutter build apk --debug
+
+  build-desktop-and-ios:
+    name: Build ${{ matrix.target }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: linux
+          - os: windows-latest
+            target: windows
+          - os: macos-latest
+            target: macos
+          - os: macos-latest
+            target: ios
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: airbridge_mobile
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter stable
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Install Linux desktop dependencies
+        if: matrix.target == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev
+
+      - name: Bootstrap platform projects (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: .\tool\bootstrap_platforms.ps1
+
+      - name: Bootstrap platform projects (Linux/macOS)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: bash ./tool/bootstrap_platforms.sh
+
+      - name: Build Linux desktop
+        if: matrix.target == 'linux'
+        run: flutter build linux --release
+
+      - name: Build Windows desktop
+        if: matrix.target == 'windows'
+        run: flutter build windows --release
+
+      - name: Build macOS desktop
+        if: matrix.target == 'macos'
+        run: flutter build macos --release
+
+      - name: Build iOS (unsigned)
+        if: matrix.target == 'ios'
+        run: flutter build ios --release --no-codesign
