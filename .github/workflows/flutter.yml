@@ -44,7 +44,17 @@ jobs:
           exit "$analyze_exit"
 
       - name: Run unit tests
-        run: flutter test --reporter expanded
+        shell: bash
+        run: |
+          set +e
+          flutter test --reporter expanded 2>&1 | tee /tmp/flutter-test.log
+          test_exit=${PIPESTATUS[0]}
+          if [[ $test_exit -ne 0 ]]; then
+            while IFS= read -r diagnostic; do
+              [[ -z "$diagnostic" ]] || echo "::error::$diagnostic"
+            done < /tmp/flutter-test.log
+          fi
+          exit "$test_exit"
 
       - name: Build Android debug APK
         run: flutter build apk --debug
