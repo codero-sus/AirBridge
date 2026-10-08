@@ -193,12 +193,12 @@ class ApiGateway {
       });
     } on Object catch (error) {
       onLog('ERROR', 'HTTP request failed: $error');
-      if (!request.response.headersSent) {
+      try {
         await _sendJson(request.response, HttpStatus.internalServerError, <String, Object?>{
           'error': 'Request processing failed.',
         });
-      } else {
-        await request.response.close();
+      } on Object {
+        // A response may already have been committed before a later failure.
       }
     }
   }
@@ -266,9 +266,10 @@ class ApiGateway {
     }
     if (_httpNonces.containsKey(nonce)) return false;
 
-    final signedBytes = <int>[]
-      ..addAll(utf8.encode('$timestamp.$nonce.'))
-      ..addAll(body);
+    final signedBytes = <int>[
+      ...utf8.encode('$timestamp.$nonce.'),
+      ...body,
+    ];
     if (!verifyHmacSha256Hex(config.sharedSecret, signedBytes, signature)) {
       return false;
     }
@@ -314,7 +315,7 @@ class ApiGateway {
       }
 
       if (_links.length >= 256) {
-        await socket.close(WebSocketStatus.tryAgainLater, 'Peer connection limit reached');
+        await socket.close(WebSocketStatus.policyViolation, 'Peer connection limit reached');
         return;
       }
       link = _SocketLink(socket: socket, peerId: deviceId);
@@ -590,8 +591,9 @@ class ApiGateway {
       _links.add(link);
       onLog('INFO', 'Connected WebSocket mesh link to ${peer.deviceName}.');
       onConnectionsChanged();
-      unawaited(_consumeFrames(streamIterator, link));
+      await _consumeFrames(streamIterator, link);
       iterator = null;
+      await connectedSocket.close(WebSocketStatus.normalClosure);
       socket = null;
     } on TimeoutException {
       onLog('WARN', 'Timed out connecting to peer ${peer.deviceId}.');
