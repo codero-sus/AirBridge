@@ -434,12 +434,19 @@ class ApiGateway {
   bool _isValidEnvelope(Map<String, dynamic> envelope) {
     final id = envelope['id'];
     final senderId = envelope['senderId'];
+    final senderName = envelope['senderName'];
+    final createdAt = envelope['createdAt'];
     final algorithm = envelope['algorithm'];
     if (id is! String ||
         id.isEmpty ||
         id.length > 128 ||
         senderId is! String ||
         senderId.isEmpty ||
+        senderId.length > 64 ||
+        senderName is! String ||
+        senderName.length > 64 ||
+        createdAt is! String ||
+        DateTime.tryParse(createdAt) == null ||
         (algorithm != 'none' && algorithm != 'AES-256-GCM')) {
       return false;
     }
