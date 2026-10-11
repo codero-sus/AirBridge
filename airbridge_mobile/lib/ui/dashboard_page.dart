@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../models/node_message.dart';
 import '../models/peer.dart';
@@ -502,14 +503,54 @@ class _PeerTile extends StatelessWidget {
   }
 }
 
-class _MessagePanel extends StatelessWidget {
+class _MessagePanel extends StatefulWidget {
   const _MessagePanel({required this.controller});
 
   final NodeController controller;
 
   @override
+  State<_MessagePanel> createState() => _MessagePanelState();
+}
+
+class _MessagePanelState extends State<_MessagePanel> {
+  final TextEditingController _searchController = TextEditingController();
+  String _query = '';
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _copyMessages(List<NodeMessage> messages) async {
+    final json = const JsonEncoder.withIndent('  ').convert(
+      messages.map((message) => message.toJson()).toList(growable: false),
+    );
+    await Clipboard.setData(ClipboardData(text: json));
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Copied ${messages.length} messages as JSON.')),
+    );
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final messages = controller.messages;
+    final allMessages = widget.controller.messages;
+    final normalizedQuery = _query.trim().toLowerCase();
+    final messages = normalizedQuery.isEmpty
+        ? allMessages
+        : allMessages
+            .where(
+              (message) =>
+                  message.senderName.toLowerCase().contains(normalizedQuery) ||
+                  message.senderId.toLowerCase().contains(normalizedQuery) ||
+                  message.text.toLowerCase().contains(normalizedQuery),
+            )
+            .toList(growable: false);
+    final detail = normalizedQuery.isEmpty
+        ? '${allMessages.length} recent messages'
+        : '${messages.length} matches • ${allMessages.length} retained';
+
     return SizedBox(
       height: 330,
       child: _GlassPanel(
@@ -518,25 +559,59 @@ class _MessagePanel extends StatelessWidget {
           children: <Widget>[
             _PanelHeading(
               icon: Icons.swap_horiz_rounded,
-              title: 'Live message stream',
-              detail: '${messages.length} recent messages',
+              title: 'Message stream',
+              detail: detail,
+              trailing: IconButton(
+                tooltip: 'Copy visible messages as JSON',
+                visualDensity: VisualDensity.compact,
+                onPressed: messages.isEmpty ? null : () => _copyMessages(messages),
+                icon: const Icon(Icons.content_copy_rounded, size: 17),
+              ),
             ),
-            const SizedBox(height: 10),
+            const SizedBox(height: 8),
+            TextField(
+              controller: _searchController,
+              onChanged: (value) => setState(() => _query = value),
+              decoration: InputDecoration(
+                hintText: 'Search sender or payload',
+                prefixIcon: const Icon(Icons.search_rounded, size: 18),
+                suffixIcon: normalizedQuery.isEmpty
+                    ? null
+                    : IconButton(
+                        tooltip: 'Clear search',
+                        onPressed: () {
+                          _searchController.clear();
+                          setState(() => _query = '');
+                        },
+                        icon: const Icon(Icons.close_rounded, size: 17),
+                      ),
+                isDense: true,
+                contentPadding: const EdgeInsets.symmetric(vertical: 10),
+              ),
+              style: const TextStyle(fontSize: 12),
+            ),
+            const SizedBox(height: 8),
             Expanded(
-              child: messages.isEmpty
+              child: allMessages.isEmpty
                   ? const _EmptyState(
                       icon: Icons.mark_chat_unread_outlined,
                       title: 'No messages yet',
                       detail: 'Broadcast a payload or wait for a peer.',
                     )
-                  : ListView.separated(
-                      reverse: true,
-                      itemCount: messages.length,
-                      separatorBuilder: (_, __) => const SizedBox(height: 8),
-                      itemBuilder: (context, index) => _MessageTile(
-                        message: messages[messages.length - index - 1],
-                      ),
-                    ),
+                  : messages.isEmpty
+                      ? const _EmptyState(
+                          icon: Icons.search_off_rounded,
+                          title: 'No matches',
+                          detail: 'Try a different sender name or payload term.',
+                        )
+                      : ListView.separated(
+                          reverse: true,
+                          itemCount: messages.length,
+                          separatorBuilder: (_, __) => const SizedBox(height: 8),
+                          itemBuilder: (context, index) => _MessageTile(
+                            message: messages[messages.length - index - 1],
+                          ),
+                        ),
             ),
           ],
         ),

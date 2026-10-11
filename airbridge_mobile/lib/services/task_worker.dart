@@ -105,6 +105,34 @@ class TaskWorker {
     );
   }
 
+  /// Reads and decrypts a bounded recent history snapshot in one worker isolate.
+  /// The byte budget prevents a large spool from causing an unbounded UI heap.
+  Future<List<Map<String, Object?>>> loadRecentMessages({
+    required String directoryPath,
+    required String sharedSecret,
+    int limit = 100,
+    int maxBytes = 8 * 1024 * 1024,
+  }) {
+    if (limit < 1 ||
+        limit > 5000 ||
+        maxBytes < 1 ||
+        maxBytes > 32 * 1024 * 1024) {
+      throw ArgumentError('History limits are outside their supported bounds.');
+    }
+    final input = <String, Object?>{
+      'directoryPath': directoryPath,
+      'sharedSecret': sharedSecret,
+      'limit': limit,
+      'maxBytes': maxBytes,
+    };
+    return submit<List<Map<String, Object?>>>(
+      () => Isolate.run<List<Map<String, Object?>>>(
+        () => _loadRecentMessages(input),
+        debugName: 'airbridge-load-message-history',
+      ),
+    );
+  }
+
   Future<void> close() {
     _accepting = false;
     _pump();
@@ -252,6 +280,75 @@ Future<Object?> _decodeEnvelope(Map<String, Object?> input) async {
   return jsonDecode(utf8.decode(clearText));
 }
 
+Future<List<Map<String, Object?>>> _loadRecentMessages(
+  Map<String, Object?> input,
+) async {
+  final directory = Directory(input['directoryPath']! as String);
+  if (!await directory.exists()) return <Map<String, Object?>>[];
+
+  final records = <_SpoolEntry>[];
+  await for (final entity in directory.list(followLinks: false)) {
+    if (entity is! File || !entity.path.endsWith('.json')) continue;
+    try {
+      final stat = await entity.stat();
+      records.add(_SpoolEntry(entity, stat.modified, stat.size));
+    } on FileSystemException {
+      // A concurrent writer may be replacing the file.
+    }
+  }
+  records.sort((left, right) => right.modified.compareTo(left.modified));
+
+  final secret = input['sharedSecret']! as String;
+  final limit = input['limit']! as int;
+  final maxBytes = input['maxBytes']! as int;
+  var bytesRead = 0;
+  final messages = <Map<String, Object?>>[];
+  for (final record in records) {
+    if (messages.length >= limit) break;
+    if (record.size > maxBytes - bytesRead) continue;
+    bytesRead += record.size;
+    try {
+      final raw = jsonDecode(await record.file.readAsString());
+      if (raw is! Map<String, dynamic>) continue;
+      final envelope = Map<String, dynamic>.from(raw);
+      final messageId = envelope['id'];
+      final senderId = envelope['senderId'];
+      if (messageId is! String ||
+          messageId.isEmpty ||
+          senderId is! String ||
+          senderId.isEmpty) {
+        continue;
+      }
+      final decoded = await _decodeEnvelope(<String, Object?>{
+        'sharedSecret': secret,
+        'envelope': envelope,
+      });
+      final senderName = envelope['senderName'];
+      final createdAt = envelope['createdAt'];
+      messages.add(<String, Object?>{
+        'messageId': messageId,
+        'senderId': senderId,
+        'senderName': senderName is String ? senderName : 'Airbridge peer',
+        'text': decoded is String
+            ? decoded
+            : const JsonEncoder.withIndent('  ').convert(decoded),
+        'timestamp': DateTime.tryParse(createdAt is String ? createdAt : '')
+                ?.toUtc()
+                .toIso8601String() ??
+            record.modified.toUtc().toIso8601String(),
+      });
+    } on Object {
+      // Ignore corrupt records or messages encrypted with a different secret.
+    }
+  }
+  messages.sort((left, right) {
+    final leftTime = DateTime.parse(left['timestamp']! as String);
+    final rightTime = DateTime.parse(right['timestamp']! as String);
+    return leftTime.compareTo(rightTime);
+  });
+  return messages;
+}
+
 Future<void> _writeEnvelope(
   String directoryPath,
   Map<String, dynamic> envelope,
@@ -292,8 +389,11 @@ Future<void> _pruneSpool(Directory directory) async {
       // A concurrent worker may already have removed the record.
     }
   }
-  records.sort((left, right) => left.modified.compareTo(right.modified));
   var totalBytes = records.fold<int>(0, (total, record) => total + record.size);
+  if (records.length <= maxRecords && totalBytes <= maxBytes) return;
+
+  // Most writes stay below the caps; avoid sorting the full spool on those.
+  records.sort((left, right) => left.modified.compareTo(right.modified));
   var removed = 0;
   while (records.length - removed > maxRecords || totalBytes > maxBytes) {
     final record = records[removed++];

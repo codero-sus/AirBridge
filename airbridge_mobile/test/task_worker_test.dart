@@ -58,4 +58,48 @@ void main() {
       'open mode',
     );
   });
+
+  test('loads a recent persisted history snapshot in chronological order', () async {
+    const secret = 'history-test-secret-with-at-least-32-bytes-for-aes';
+    for (var index = 1; index <= 3; index++) {
+      await worker.storeMessage(
+        directoryPath: directory.path,
+        sharedSecret: secret,
+        messageId: 'history-$index',
+        senderId: 'node-test-1',
+        senderName: 'Test node',
+        createdAt: DateTime.utc(2025, 1, 1, 0, 0, index),
+        payload: 'message $index',
+        maxPayloadBytes: 4096,
+      );
+    }
+
+    final history = await worker.loadRecentMessages(
+      directoryPath: directory.path,
+      sharedSecret: secret,
+    );
+    expect(history.map((message) => message['messageId']), <String>[
+      'history-1',
+      'history-2',
+      'history-3',
+    ]);
+    expect(history.map((message) => message['text']), <String>[
+      'message 1',
+      'message 2',
+      'message 3',
+    ]);
+
+    final tooSmallBudget = await worker.loadRecentMessages(
+      directoryPath: directory.path,
+      sharedSecret: secret,
+      maxBytes: 1,
+    );
+    expect(tooSmallBudget, isEmpty);
+
+    final wrongSecret = await worker.loadRecentMessages(
+      directoryPath: directory.path,
+      sharedSecret: 'another-secret-with-at-least-32-bytes',
+    );
+    expect(wrongSecret, isEmpty);
+  });
 }

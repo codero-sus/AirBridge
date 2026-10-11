@@ -14,6 +14,15 @@ class NodeMessage {
   final String text;
   final DateTime timestamp;
   final bool isLocal;
+
+  Map<String, Object?> toJson() => <String, Object?>{
+        'messageId': messageId,
+        'senderId': senderId,
+        'senderName': senderName,
+        'payloadText': text,
+        'timestamp': timestamp.toUtc().toIso8601String(),
+        'isLocal': isLocal,
+      };
 }
 
 class NodeLogEntry {
