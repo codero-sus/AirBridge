@@ -1,12 +1,55 @@
 # Build and deploy Airbridge Mobile
 
-## 1. Toolchains
+## 1. Tools and platform requirements
 
-* Flutter **3.24 or newer** and its matching Dart SDK (Dart 3.5+).
-* Android: Android SDK/platform tools and a JDK supported by the installed Flutter SDK.
-* Windows: build on Windows with Visual Studio 2022 and the **Desktop development with C++** workload.
-* Linux: build on Linux with `clang`, `cmake`, `ninja-build`, GTK 3 development headers, and `pkg-config`.
-* macOS/iOS: build on macOS with Xcode and CocoaPods. An iOS device/App Store build additionally needs a valid Apple signing team/profile.
+### Required everywhere
+
+* **Flutter stable SDK 3.24+**; it includes the matching **Dart 3.5+ SDK**. Install Flutter once and add its `bin` folder to `PATH`.
+* **Git** to clone/update the repository. An IDE is optional: VS Code with the Flutter/Dart extensions or Android Studio are convenient, but the commands below work from a terminal.
+* Verify the core install with:
+
+```bash
+flutter --version
+dart --version
+flutter doctor -v
+```
+
+### Pick the toolchain for the artifact you want
+
+| Artifact | Build host | Additional tools needed |
+| --- | --- | --- |
+| Android `.apk` | Windows, macOS, or Linux | Android Studio (recommended) with Android SDK Command-line Tools, Platform-Tools (`adb`), and Android Build Tools; a JDK supported by Flutter. Accept licenses with `flutter doctor --android-licenses`. `adb` is only needed to install/test on a device, not to compile the APK. |
+| Windows `.exe` | Windows | Visual Studio 2022 with **Desktop development with C++**, MSVC C++ build tools, and a Windows 10/11 SDK. Flutter creates a release folder; ship the whole folder, not just the `.exe`. |
+| Linux desktop bundle | Linux | `clang`, `cmake`, `ninja-build`, `pkg-config`, GTK 3 development headers, and a C++ standard library toolchain. |
+| macOS `.app` | macOS | Xcode and CocoaPods. Xcode command-line tools must be selected and its license accepted. |
+| iOS app / `.ipa` | macOS only | Xcode and CocoaPods. An unsigned build needs no signing identity; device installation or a distributable IPA requires an Apple Developer signing team/profile. Airbridge's multicast discovery also needs Apple's multicast entitlement on the App ID/profile. |
+
+For Debian/Ubuntu, install the Linux desktop packages with:
+
+```bash
+sudo apt-get update
+sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev
+```
+
+For macOS/iOS, install Xcode from the App Store and Homebrew, then select Xcode and install CocoaPods:
+
+```bash
+sudo xcode-select --switch /Applications/Xcode.app/Contents/Developer
+sudo xcodebuild -runFirstLaunch
+sudo xcodebuild -license accept
+brew install cocoapods
+```
+
+For Android, install Android Studio and use **SDK Manager** to install Android SDK Command-line Tools, Platform-Tools, and Build Tools. Then run:
+
+```bash
+flutter doctor --android-licenses
+flutter doctor -v
+```
+
+For Windows, install Visual Studio 2022 (not just Visual Studio Code) and select **Desktop development with C++** in Visual Studio Installer. In the Android Studio SDK Manager, install the Android components too if you also want APKs.
+
+> Build on the target desktop OS: Windows executables on Windows, Linux bundles on Linux, and macOS/iOS on macOS. Android APKs can be built from any supported desktop host. The Android SDK/JDK, Visual Studio C++ workload, Linux packages, Xcode, and CocoaPods are native build dependencies; Flutter and Dart alone are not sufficient.
 
 The generated native host projects are intentionally the standard Flutter templates. The bootstrap scripts generate them and then apply the checked-in permissions, native bridge, and Apple network entitlements.
 
