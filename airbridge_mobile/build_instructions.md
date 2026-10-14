@@ -5,7 +5,7 @@
 ### Required everywhere
 
 * **Flutter stable SDK 3.24+**; it includes the matching **Dart 3.5+ SDK**. Install Flutter once and add its `bin` folder to `PATH`.
-* **Git** to clone/update the repository. An IDE is optional: VS Code with the Flutter/Dart extensions or Android Studio are convenient, but the commands below work from a terminal.
+* **Git** to clone/update the repository and **Python 3** for the platform bootstrap script. An IDE is optional: VS Code with the Flutter/Dart extensions or Android Studio are convenient, but the commands below work from a terminal.
 * Verify the core install with:
 
 ```bash
@@ -245,6 +245,37 @@ The dashboard log should show the bind error. On Windows, find the process using
 ### WebSocket does not connect
 
 The client must connect to `ws://<peer-ip>:8765/ws`, read the server's first `challenge` frame, reply with the HMAC-authenticated `auth` frame described above, then wait for `hello`. Check that TCP `8765` is reachable and that both nodes use the same secret. In open-LAN mode, the auth frame still needs a `deviceId`, but no signature is required.
+
+### Android SDK is not found on Windows
+
+Install Android Studio, open **Tools → SDK Manager**, and install Android SDK Platform-Tools, Android SDK Build-Tools, Android SDK Command-line Tools (latest), and at least one Android SDK Platform. The default SDK folder is `%LOCALAPPDATA%\Android\Sdk`. In PowerShell, configure Flutter and the environment (if Android Studio shows a different SDK Location, set `$sdk` to that path):
+
+```powershell
+$sdk = Join-Path $env:LOCALAPPDATA 'Android\Sdk'
+if (-not (Test-Path $sdk)) { throw "Android SDK not found at $sdk. Check SDK Manager's SDK Location." }
+[Environment]::SetEnvironmentVariable('ANDROID_HOME', $sdk, 'User')
+$env:ANDROID_HOME = $sdk
+flutter config --android-sdk $sdk
+flutter doctor --android-licenses
+flutter doctor -v
+```
+
+Close and reopen PowerShell after setting the user environment variable. A message that newer package versions exist but are outside dependency constraints is informational; it is not the cause of an Android SDK error, and `flutter pub upgrade` is not required.
+
+### Windows desktop target is not configured
+
+From the `airbridge_mobile` project folder (the one containing `pubspec.yaml`), run the bootstrap once before building. It creates the native Windows runner and applies Airbridge's platform settings; Python 3 and Flutter must be installed first:
+
+```powershell
+.\tool\bootstrap_platforms.ps1
+flutter build windows --release
+```
+
+If PowerShell says scripts are disabled, run `Set-ExecutionPolicy -Scope Process Bypass` in that PowerShell window and retry the script. Also install Visual Studio 2022's **Desktop development with C++** workload.
+
+### Build command is unsupported on this host
+
+This is expected when the target OS differs from the build host. Run `flutter build linux --release` from Linux (or a Linux Flutter installation inside WSL2), and run `flutter build macos --release` / `flutter build ios --release --no-codesign` from macOS with Xcode installed. A Windows Flutter installation cannot produce Linux, macOS, or iOS builds. On the target machine, check `flutter --version` (stable 3.24+ is required) and `flutter doctor -v` if Flutter still rejects the build-mode option.
 
 ### Platform-specific build problems
 
