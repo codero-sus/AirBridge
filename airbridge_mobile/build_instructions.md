@@ -72,6 +72,8 @@ cd airbridge_mobile
 .\tool\bootstrap_platforms.ps1
 ```
 
+From a Git clone's repository root, Windows users can instead run `updater.bat`. It fetches and fast-forwards `arena/028ea2fd-airbridge`, bootstraps missing native projects, runs `flutter clean` and `flutter pub get`, then builds the Android release APK and Windows desktop bundle. It never force-resets local files. The APK requires a configured Android SDK; the Windows bundle requires Visual Studio 2022's **Desktop development with C++** workload. The script does not build Linux, macOS, or iOS targets because those require their respective host operating systems.
+
 The scripts generate standard Flutter host projects in a temporary directory, copy in only missing native platform folders (so they cannot overwrite `lib/` or `pubspec.yaml`), apply the checked-in permissions/native bridge/Apple network entitlements, then run `flutter pub get`. They can be rerun to reapply Airbridge's platform settings. Existing native host folders are preserved; after a major Flutter template upgrade, back them up and regenerate/update them deliberately.
 
 ## 3. Shared mesh secret (recommended)
