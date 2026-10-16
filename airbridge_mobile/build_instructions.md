@@ -238,7 +238,7 @@ For Linux with UFW, allow the corresponding ports with `sudo ufw allow 8765/tcp`
 * `401 Unauthorized`: with a shared secret, check that the HMAC uses the exact request body bytes, current Unix timestamp in seconds, a fresh nonce, and the same secret as the node. Requests older than 120 seconds and reused nonces are rejected. See the signed `curl` example above.
 * `400 Bad Request`: send a JSON object with a `payload` field, for example `{"payload":{"text":"hello"}}`.
 * `413 Payload Too Large`: the encoded payload exceeds `AIRBRIDGE_MAX_PAYLOAD_BYTES` (1 MiB by default). Increase it at build time only if needed; the supported range is 1 KiB to 16 MiB.
-* `503 Service Unavailable`: the bounded background queue is full. Retry after the node drains pending encryption/file tasks.
+* `503 Service Unavailable`: the bounded worker queue, HTTP request capacity, or pending WebSocket-handshake limit is full. Retry shortly; repeated responses can indicate sustained load or an unauthenticated client flood.
 
 ### Port already in use / node fails to start
 

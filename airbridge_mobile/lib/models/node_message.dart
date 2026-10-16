@@ -35,4 +35,10 @@ class NodeLogEntry {
   final DateTime timestamp;
   final String level;
   final String message;
+
+  Map<String, Object?> toJson() => <String, Object?>{
+        'timestamp': timestamp.toUtc().toIso8601String(),
+        'level': level,
+        'message': message,
+      };
 }

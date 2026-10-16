@@ -78,6 +78,7 @@ void main() {
         httpPort: port,
       );
       final received = <Map<String, dynamic>>[];
+      final malformedEnvelopeRejected = Completer<void>();
       final gateway = ApiGateway(
         config: config,
         statusProvider: () => <String, Object?>{
@@ -91,7 +92,12 @@ void main() {
         onEnvelope: (envelope, {required local}) async {
           received.add(envelope);
         },
-        onLog: (_, __) {},
+        onLog: (_, message) {
+          if (message.contains('Rejected malformed mesh envelope') &&
+              !malformedEnvelopeRejected.isCompleted) {
+            malformedEnvelopeRejected.complete();
+          }
+        },
         onConnectionsChanged: () {},
       );
       final client = HttpClient()..findProxy = (_) => 'DIRECT';
@@ -187,6 +193,21 @@ void main() {
       expect(hello['deviceId'], _leftId);
 
       webSocket.add(jsonEncode(<String, Object?>{
+        'type': 'message',
+        'envelope': <String, Object?>{
+          'version': 2,
+          'id': 'unknown-version',
+          'senderId': clientId,
+          'senderName': 'Test peer',
+          'createdAt': DateTime.now().toUtc().toIso8601String(),
+          'algorithm': 'none',
+          'payload': 'must not be accepted',
+        },
+      }));
+      await malformedEnvelopeRejected.future.timeout(const Duration(seconds: 3));
+      expect(received, hasLength(1));
+
+      webSocket.add(jsonEncode(<String, Object?>{
         'type': 'write',
         'payload': <String, Object?>{'source': 'websocket'},
       }));
@@ -199,6 +220,61 @@ void main() {
         gotAccepted |= frame['type'] == 'accepted';
       }
       expect(received, hasLength(2));
+    });
+  });
+
+  test('limits concurrent unauthenticated WebSocket handshakes', () async {
+    await _withDirectHttp(() async {
+      final directory = await _newDirectory('handshake-limit');
+      final port = await _availablePort();
+      final config = _testConfig(
+        deviceId: _leftId,
+        deviceName: 'Handshake limit node',
+        directory: directory,
+        httpPort: port,
+      );
+      final gateway = ApiGateway(
+        config: config,
+        statusProvider: () => <String, Object?>{'deviceId': config.deviceId},
+        payloadFactory: _envelopeFactory(config.deviceId),
+        onEnvelope: (_, {required local}) async {},
+        onLog: (_, __) {},
+        onConnectionsChanged: () {},
+        maxPendingWebSocketHandshakes: 1,
+      );
+      final firstClient = HttpClient()..findProxy = (_) => 'DIRECT';
+      final secondClient = HttpClient()..findProxy = (_) => 'DIRECT';
+      WebSocket? firstSocket;
+      StreamIterator<dynamic>? firstIterator;
+      await gateway.start();
+      addTearDown(() async {
+        await firstIterator?.cancel();
+        final openSocket = firstSocket;
+        if (openSocket != null) await openSocket.close();
+        firstClient.close(force: true);
+        secondClient.close(force: true);
+        await gateway.stop();
+        if (await directory.exists()) await directory.delete(recursive: true);
+      });
+
+      final socket = await WebSocket.connect(
+        'ws://127.0.0.1:$port/ws',
+        customClient: firstClient,
+      );
+      firstSocket = socket;
+      final iterator = StreamIterator<dynamic>(socket);
+      firstIterator = iterator;
+      expect(await iterator.moveNext().timeout(const Duration(seconds: 3)), isTrue);
+      final challenge = jsonDecode(iterator.current as String) as Map<String, dynamic>;
+      expect(challenge['type'], 'challenge');
+
+      await expectLater(
+        WebSocket.connect(
+          'ws://127.0.0.1:$port/ws',
+          customClient: secondClient,
+        ).timeout(const Duration(seconds: 3)),
+        throwsA(isA<WebSocketException>()),
+      );
     });
   });
 

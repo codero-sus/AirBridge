@@ -7,6 +7,7 @@ import 'dart:typed_data';
 
 import '../config/node_config.dart';
 import '../models/peer.dart';
+import 'reconnect_backoff.dart';
 import 'security.dart';
 import 'task_worker.dart';
 
@@ -32,7 +33,13 @@ class ApiGateway {
     required this.onEnvelope,
     required this.onLog,
     required this.onConnectionsChanged,
-  });
+    this.maxConcurrentHttpRequests = 128,
+    this.maxPendingWebSocketHandshakes = 32,
+  }) {
+    if (maxConcurrentHttpRequests < 1 || maxPendingWebSocketHandshakes < 1) {
+      throw ArgumentError('Gateway concurrency limits must be positive.');
+    }
+  }
 
   final NodeConfig config;
   final NodeStatusProvider statusProvider;
@@ -40,6 +47,8 @@ class ApiGateway {
   final EnvelopeCallback onEnvelope;
   final GatewayLogCallback onLog;
   final GatewayChangeCallback onConnectionsChanged;
+  final int maxConcurrentHttpRequests;
+  final int maxPendingWebSocketHandshakes;
 
   final Set<_SocketLink> _links = <_SocketLink>{};
   final Map<String, Peer> _knownPeers = <String, Peer>{};
@@ -49,6 +58,11 @@ class ApiGateway {
   final LinkedHashMap<String, DateTime> _httpNonces =
       LinkedHashMap<String, DateTime>();
   final Set<String> _processingMessages = <String>{};
+  final Map<String, int> _reconnectAttempts = <String, int>{};
+  final Map<String, DateTime> _retryAfter = <String, DateTime>{};
+  final ReconnectBackoff _reconnectBackoff = ReconnectBackoff();
+  int _activeHttpRequests = 0;
+  int _pendingWebSocketHandshakes = 0;
   HttpServer? _server;
   StreamSubscription<HttpRequest>? _serverSubscription;
   Timer? _reconnectTimer;
@@ -68,14 +82,14 @@ class ApiGateway {
     );
     _server = server;
     _serverSubscription = server.listen(
-      (request) => unawaited(_handleRequest(request)),
+      (request) => unawaited(_handleGuardedRequest(request)),
       onError: (Object error, StackTrace stack) {
         onLog('ERROR', 'HTTP listener error: $error');
       },
       cancelOnError: false,
     );
     _reconnectTimer = Timer.periodic(
-      const Duration(seconds: 4),
+      const Duration(seconds: 1),
       (_) => _reconcilePeerConnections(),
     );
     onLog('INFO', 'HTTP/WebSocket gateway listening on 0.0.0.0:${config.httpPort}.');
@@ -105,6 +119,8 @@ class ApiGateway {
     _links.clear();
     _knownPeers.clear();
     _dialing.clear();
+    _reconnectAttempts.clear();
+    _retryAfter.clear();
     onConnectionsChanged();
   }
 
@@ -114,6 +130,8 @@ class ApiGateway {
     _knownPeers[peer.deviceId] = peer;
     if (previous != null &&
         (previous.host != peer.host || previous.httpPort != peer.httpPort)) {
+      _reconnectAttempts.remove(peer.deviceId);
+      _retryAfter.remove(peer.deviceId);
       for (final link in _links.where((item) => item.peerId == peer.deviceId).toList()) {
         unawaited(_closeLink(link, 'Peer network address changed'));
       }
@@ -123,6 +141,8 @@ class ApiGateway {
 
   Future<void> removePeer(String deviceId) async {
     _knownPeers.remove(deviceId);
+    _reconnectAttempts.remove(deviceId);
+    _retryAfter.remove(deviceId);
     final links = _links.where((link) => link.peerId == deviceId).toList();
     for (final link in links) {
       try {
@@ -153,7 +173,55 @@ class ApiGateway {
     }
   }
 
-  Future<void> _handleRequest(HttpRequest request) async {
+  Future<void> _handleGuardedRequest(HttpRequest request) async {
+    final isWebSocketRoute = request.method == 'GET' && request.uri.path == '/ws';
+    if (isWebSocketRoute) {
+      if (_pendingWebSocketHandshakes >= maxPendingWebSocketHandshakes) {
+        onLog('WARN', 'Rejected WebSocket upgrade: too many pending handshakes.');
+        await _sendJson(request.response, HttpStatus.serviceUnavailable, <String, Object?>{
+          'error': 'Too many pending WebSocket handshakes. Retry shortly.',
+        });
+        return;
+      }
+
+      _pendingWebSocketHandshakes++;
+      var handshakePending = true;
+      void releaseHandshakeSlot() {
+        if (!handshakePending) return;
+        handshakePending = false;
+        _pendingWebSocketHandshakes--;
+      }
+      try {
+        await _handleRequest(
+          request,
+          onWebSocketAuthenticated: releaseHandshakeSlot,
+        );
+      } finally {
+        releaseHandshakeSlot();
+      }
+      return;
+    }
+
+    if (_activeHttpRequests >= maxConcurrentHttpRequests) {
+      onLog('WARN', 'Rejected HTTP request: concurrency limit reached.');
+      await _sendJson(request.response, HttpStatus.serviceUnavailable, <String, Object?>{
+        'error': 'HTTP request capacity is busy. Retry shortly.',
+      });
+      return;
+    }
+
+    _activeHttpRequests++;
+    try {
+      await _handleRequest(request);
+    } finally {
+      _activeHttpRequests--;
+    }
+  }
+
+  Future<void> _handleRequest(
+    HttpRequest request, {
+    void Function()? onWebSocketAuthenticated,
+  }) async {
     try {
       final path = request.uri.path;
       if (request.method == 'GET' && path == '/status') {
@@ -173,7 +241,10 @@ class ApiGateway {
         }
         final socket = await WebSocketTransformer.upgrade(request);
         socket.pingInterval = const Duration(seconds: 20);
-        await _serveIncomingSocket(socket);
+        await _serveIncomingSocket(
+          socket,
+          onAuthenticated: onWebSocketAuthenticated,
+        );
         return;
       }
       await _sendJson(request.response, HttpStatus.notFound, <String, Object?>{
@@ -280,7 +351,10 @@ class ApiGateway {
     return true;
   }
 
-  Future<void> _serveIncomingSocket(WebSocket socket) async {
+  Future<void> _serveIncomingSocket(
+    WebSocket socket, {
+    void Function()? onAuthenticated,
+  }) async {
     final iterator = StreamIterator<dynamic>(socket);
     _SocketLink? link;
     var iteratorTransferred = false;
@@ -320,6 +394,7 @@ class ApiGateway {
       }
       link = _SocketLink(socket: socket, peerId: deviceId);
       _links.add(link);
+      onAuthenticated?.call();
       socket.add(jsonEncode(_helloFrame()));
       onLog('INFO', 'WebSocket peer connected: $deviceId.');
       onConnectionsChanged();
@@ -432,12 +507,15 @@ class ApiGateway {
   }
 
   bool _isValidEnvelope(Map<String, dynamic> envelope) {
+    final version = envelope['version'];
     final id = envelope['id'];
     final senderId = envelope['senderId'];
     final senderName = envelope['senderName'];
     final createdAt = envelope['createdAt'];
     final algorithm = envelope['algorithm'];
-    if (id is! String ||
+    if (version is! int ||
+        version != 1 ||
+        id is! String ||
         id.isEmpty ||
         id.length > 128 ||
         senderId is! String ||
@@ -540,16 +618,32 @@ class ApiGateway {
 
   void _reconcilePeerConnections() {
     if (_stopped || _links.length >= 256) return;
+    final now = DateTime.now();
     for (final peer in _knownPeers.values) {
       if (_links.length + _dialing.length >= 256) return;
       // Deterministically choose one outbound connection per pair.
       if (config.deviceId.compareTo(peer.deviceId) >= 0) continue;
+      final retryAt = _retryAfter[peer.deviceId];
+      if (retryAt != null && now.isBefore(retryAt)) continue;
+      _retryAfter.remove(peer.deviceId);
       if (_dialing.contains(peer.deviceId) ||
           _links.any((link) => link.peerId == peer.deviceId)) {
         continue;
       }
       unawaited(_dialPeer(peer));
     }
+  }
+
+  void _scheduleReconnect(String peerId) {
+    if (_stopped || !_knownPeers.containsKey(peerId)) return;
+    final attempt = (_reconnectAttempts[peerId] ?? 0) + 1;
+    _reconnectAttempts[peerId] = attempt;
+    final delay = _reconnectBackoff.delayForAttempt(attempt);
+    _retryAfter[peerId] = DateTime.now().add(delay);
+    onLog(
+      'WARN',
+      'Peer $peerId reconnect scheduled in ${delay.inMilliseconds} ms (attempt $attempt).',
+    );
   }
 
   Future<void> _dialPeer(Peer peer) async {
@@ -567,6 +661,7 @@ class ApiGateway {
         const Duration(seconds: 5),
       );
       socket = connectedSocket;
+      if (_stopped) return;
       connectedSocket.pingInterval = const Duration(seconds: 20);
       final streamIterator = StreamIterator<dynamic>(connectedSocket);
       iterator = streamIterator;
@@ -591,6 +686,9 @@ class ApiGateway {
       if (hello?['type'] != 'hello' || hello?['deviceId'] != peer.deviceId) {
         throw const FormatException('Peer identity did not match its discovery beacon.');
       }
+      if (_stopped) return;
+      _reconnectAttempts.remove(peer.deviceId);
+      _retryAfter.remove(peer.deviceId);
       final link = _SocketLink(
         socket: connectedSocket,
         peerId: peer.deviceId,
@@ -618,6 +716,11 @@ class ApiGateway {
         }
       }
       _dialing.remove(peer.deviceId);
+      if (!_stopped &&
+          _knownPeers.containsKey(peer.deviceId) &&
+          !_links.any((link) => link.peerId == peer.deviceId)) {
+        _scheduleReconnect(peer.deviceId);
+      }
     }
   }
 

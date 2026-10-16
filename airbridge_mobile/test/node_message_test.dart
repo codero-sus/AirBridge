@@ -21,4 +21,18 @@ void main() {
       'isLocal': true,
     });
   });
+
+  test('system log JSON export includes UTC timestamp, level, and message', () {
+    final entry = NodeLogEntry(
+      timestamp: DateTime.utc(2026, 10, 16, 12, 30),
+      level: 'WARN',
+      message: 'Retry scheduled',
+    );
+
+    expect(entry.toJson(), <String, Object?>{
+      'timestamp': '2026-10-16T12:30:00.000Z',
+      'level': 'WARN',
+      'message': 'Retry scheduled',
+    });
+  });
 }
