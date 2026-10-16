@@ -244,13 +244,8 @@ void main() {
       );
       final firstClient = HttpClient()..findProxy = (_) => 'DIRECT';
       final secondClient = HttpClient()..findProxy = (_) => 'DIRECT';
-      WebSocket? firstSocket;
-      StreamIterator<dynamic>? firstIterator;
       await gateway.start();
       addTearDown(() async {
-        await firstIterator?.cancel();
-        final openSocket = firstSocket;
-        if (openSocket != null) await openSocket.close();
         firstClient.close(force: true);
         secondClient.close(force: true);
         await gateway.stop();
@@ -261,9 +256,15 @@ void main() {
         'ws://127.0.0.1:$port/ws',
         customClient: firstClient,
       );
-      firstSocket = socket;
       final iterator = StreamIterator<dynamic>(socket);
-      firstIterator = iterator;
+      addTearDown(() async {
+        await iterator.cancel();
+        try {
+          await socket.close();
+        } on Object {
+          // Socket shutdown is best effort after a failed handshake attempt.
+        }
+      });
       expect(await iterator.moveNext().timeout(const Duration(seconds: 3)), isTrue);
       final challenge = jsonDecode(iterator.current as String) as Map<String, dynamic>;
       expect(challenge['type'], 'challenge');
