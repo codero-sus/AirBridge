@@ -13,6 +13,11 @@ void main() {
       expect(verifyHmacSha256Hex(secret, body, signature), isTrue);
     });
 
+    test('accepts uppercase hex without weakening the digest comparison', () {
+      final signature = hmacSha256Hex(secret, body).toUpperCase();
+      expect(verifyHmacSha256Hex(secret, body, signature), isTrue);
+    });
+
     test('rejects changed bytes and malformed signatures', () {
       final signature = hmacSha256Hex(secret, body);
       expect(
@@ -20,6 +25,8 @@ void main() {
         isFalse,
       );
       expect(verifyHmacSha256Hex(secret, body, 'abc'), isFalse);
+      expect(verifyHmacSha256Hex(secret, body, List.filled(64, 'z').join()), isFalse);
+      expect(verifyHmacSha256Hex(secret, body, '$signature\n'), isFalse);
       expect(verifyHmacSha256Hex(secret, body, null), isFalse);
     });
   });

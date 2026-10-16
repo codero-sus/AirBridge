@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
@@ -207,9 +208,21 @@ class _NodeHeader extends StatelessWidget {
           ),
           if (controller.lifecycle == 'error') ...<Widget>[
             const SizedBox(height: 10),
-            const Text(
-              'The node could not start. Check the event log and verify the configured ports are free.',
-              style: TextStyle(color: Color(0xFFFF9E9E), fontSize: 12),
+            Row(
+              children: <Widget>[
+                const Expanded(
+                  child: Text(
+                    'The node could not start. Check the event log and verify the configured ports are free.',
+                    style: TextStyle(color: Color(0xFFFF9E9E), fontSize: 12),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                TextButton.icon(
+                  onPressed: () => unawaited(controller.start()),
+                  icon: const Icon(Icons.refresh_rounded, size: 16),
+                  label: const Text('Retry'),
+                ),
+              ],
             ),
           ],
         ],
@@ -683,6 +696,17 @@ class _LogPanel extends StatelessWidget {
 
   final NodeController controller;
 
+  Future<void> _copyLogs(BuildContext context, List<NodeLogEntry> logs) async {
+    final json = const JsonEncoder.withIndent('  ').convert(
+      logs.map((entry) => entry.toJson()).toList(growable: false),
+    );
+    await Clipboard.setData(ClipboardData(text: json));
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Copied ${logs.length} system log events as JSON.')),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final logs = controller.logs;
@@ -696,6 +720,14 @@ class _LogPanel extends StatelessWidget {
               icon: Icons.receipt_long_rounded,
               title: 'System log',
               detail: '${logs.length} recent events',
+              trailing: IconButton(
+                tooltip: 'Copy recent system log as JSON',
+                visualDensity: VisualDensity.compact,
+                onPressed: logs.isEmpty
+                    ? null
+                    : () => unawaited(_copyLogs(context, logs)),
+                icon: const Icon(Icons.content_copy_rounded, size: 17),
+              ),
             ),
             const SizedBox(height: 8),
             Expanded(
