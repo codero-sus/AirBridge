@@ -22,7 +22,7 @@ flutter doctor -v
 | Windows `.exe` | Windows | Visual Studio 2022 with **Desktop development with C++**, MSVC C++ build tools, and a Windows 10/11 SDK. Flutter creates a release folder; ship the whole folder, not just the `.exe`. |
 | Linux desktop bundle | Linux | `clang`, `cmake`, `ninja-build`, `pkg-config`, GTK 3 development headers, and a C++ standard library toolchain. |
 | macOS `.app` | macOS | Xcode and CocoaPods. Xcode command-line tools must be selected and its license accepted. |
-| iOS app / `.ipa` | macOS only | Xcode and CocoaPods. An unsigned build needs no signing identity; device installation or a distributable IPA requires an Apple Developer signing team/profile. Airbridge's multicast discovery also needs Apple's multicast entitlement on the App ID/profile. |
+| iOS 15.5+ app / `.ipa` | macOS only | Xcode and CocoaPods. Airbridge's camera-scanning dependency requires iOS 15.5 or newer; bootstrap applies that deployment target. An unsigned build needs no signing identity; device installation or a distributable IPA requires an Apple Developer signing team/profile. Airbridge's multicast discovery also needs Apple's multicast entitlement on the App ID/profile. |
 
 For Debian/Ubuntu, install the Linux desktop packages with:
 
@@ -74,7 +74,7 @@ cd airbridge_mobile
 
 From a Git clone's repository root, Windows users can instead run `updater.bat`. It fetches and fast-forwards `arena/028ea2fd-airbridge`, bootstraps missing native projects, runs `flutter clean` and `flutter pub get`, then builds the Android release APK and Windows desktop bundle. It never force-resets local files. The APK requires a configured Android SDK; the Windows bundle requires Visual Studio 2022's **Desktop development with C++** workload. The script does not build Linux, macOS, or iOS targets because those require their respective host operating systems.
 
-The scripts generate standard Flutter host projects in a temporary directory, copy in only missing native platform folders (so they cannot overwrite `lib/` or `pubspec.yaml`), apply the checked-in permissions/native bridge/Apple network entitlements, then run `flutter pub get`. They can be rerun to reapply Airbridge's platform settings. Existing native host folders are preserved; after a major Flutter template upgrade, back them up and regenerate/update them deliberately.
+The scripts generate standard Flutter host projects in a temporary directory, copy in only missing native platform folders (so they cannot overwrite `lib/` or `pubspec.yaml`), apply the checked-in permissions/native bridge/Apple network entitlements and iOS 15.5 deployment target, then run `flutter pub get`. They can be rerun to reapply Airbridge's platform settings. Existing native host folders are preserved; after a major Flutter template upgrade, back them up and regenerate/update them deliberately.
 
 ## 3. Passwordless QR pairing and optional shared secret
 
