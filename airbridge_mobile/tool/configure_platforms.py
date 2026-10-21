@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import plistlib
+import re
 import shutil
 from pathlib import Path
 
@@ -34,6 +35,44 @@ def update_plist(path: Path, mutate, *, create_if_missing: bool = False) -> None
     with path.open("wb") as stream:
         plistlib.dump(values, stream, sort_keys=False)
     print(f"configured {path.relative_to(ROOT)}")
+
+
+IOS_MINIMUM_VERSION = "15.5"
+
+
+def update_ios_deployment_target() -> None:
+    podfile = ROOT / "ios" / "Podfile"
+    if not podfile.is_file():
+        raise SystemExit(
+            f"Flutter iOS Podfile not found: {podfile.relative_to(ROOT)}. "
+            "Run tool/bootstrap_platforms.sh first."
+        )
+    text = podfile.read_text()
+    platform_line = f"platform :ios, '{IOS_MINIMUM_VERSION}'"
+    platform_pattern = re.compile(
+        r"(?m)^\s*#?\s*platform\s+:ios\s*,\s*['\"][^'\"]+['\"]\s*$"
+    )
+    if platform_pattern.search(text):
+        text = platform_pattern.sub(platform_line, text, count=1)
+    else:
+        text = f"{platform_line}\n{text}"
+    podfile.write_text(text)
+    print(f"configured {podfile.relative_to(ROOT)} (iOS {IOS_MINIMUM_VERSION} minimum)")
+
+    project = ROOT / "ios" / "Runner.xcodeproj" / "project.pbxproj"
+    if project.is_file():
+        project_text = project.read_text()
+        project_text, replacements = re.subn(
+            r"(IPHONEOS_DEPLOYMENT_TARGET\s*=\s*)[0-9.]+;",
+            rf"\g<1>{IOS_MINIMUM_VERSION};",
+            project_text,
+        )
+        if replacements:
+            project.write_text(project_text)
+            print(
+                f"configured {project.relative_to(ROOT)} "
+                f"(iOS {IOS_MINIMUM_VERSION} minimum)"
+            )
 
 
 def update_apple_info(values: dict) -> None:
@@ -89,6 +128,7 @@ def main() -> None:
     update_plist(ios_info, update_apple_info)
     ios_entitlements = ROOT / "ios" / "Runner" / "Runner.entitlements"
     update_plist(ios_entitlements, update_ios_entitlements, create_if_missing=True)
+    update_ios_deployment_target()
 
     macos_info = ROOT / "macos" / "Runner" / "Info.plist"
     update_plist(macos_info, update_apple_info)

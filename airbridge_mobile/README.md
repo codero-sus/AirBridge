@@ -39,6 +39,6 @@ platform_templates/                 native permissions/entitlement overlays
 
 ## Prerequisites
 
-Install Flutter 3.24+ (with Dart 3.5+) and the native toolchain for the platform you build. On first checkout, run the platform bootstrap command in `build_instructions.md`; it generates the standard Flutter host projects and installs this repository's Android/iOS/macOS platform configuration.
+Install Flutter 3.24+ (with Dart 3.5+) and the native toolchain for the platform you build. Airbridge's iOS camera-scanning plugin requires iOS 15.5 or newer; bootstrap applies that deployment target. On first checkout, run the platform bootstrap command in `build_instructions.md`; it generates the standard Flutter host projects and installs this repository's Android/iOS/macOS platform configuration.
 
 The app is intended to operate while foregrounded. Mobile operating systems can suspend sockets in the background. A production always-on Android deployment should add a user-visible Android foreground service; iOS does not permit an unrestricted always-on background server.
