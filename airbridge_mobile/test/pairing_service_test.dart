@@ -147,7 +147,7 @@ void main() {
       onEnvelope: (_, {required local}) async {},
       onLog: (_, __) {},
       onConnectionsChanged: () {
-        if (clientGateway.connectedPeerIds.contains(_hostId) &&
+        if (clientGateway?.connectedPeerIds.contains(_hostId) == true &&
             !clientLinked.isCompleted) {
           clientLinked.complete();
         }
