@@ -76,9 +76,11 @@ From a Git clone's repository root, Windows users can instead run `updater.bat`.
 
 The scripts generate standard Flutter host projects in a temporary directory, copy in only missing native platform folders (so they cannot overwrite `lib/` or `pubspec.yaml`), apply the checked-in permissions/native bridge/Apple network entitlements, then run `flutter pub get`. They can be rerun to reapply Airbridge's platform settings. Existing native host folders are preserved; after a major Flutter template upgrade, back them up and regenerate/update them deliberately.
 
-## 3. Shared mesh secret (recommended)
+## 3. Passwordless QR pairing and optional shared secret
 
-Use the same randomly generated value on every node in one mesh. Do not commit it to Git. Example for Bash:
+By default, pair devices from the dashboard: tap **Pair a device**, show the QR, scan it from the joining Android/iOS device (or copy/paste the QR text on desktop), compare the six-digit code on both screens, then confirm. The code is a short authentication string—not a password or a six-digit network credential. The QR contains a random 256-bit, single-use key; invitations expire after five minutes and lock after five invalid proofs. Each accepted device gets a distinct HMAC key, saved in the app's private support directory. Keep the QR private until pairing completes. Without a shared secret, only paired peers can authenticate mesh links, but message payloads are not encrypted on the LAN.
+
+For AES-256-GCM payload encryption and shared-secret authentication of discovery, optionally use the same randomly generated value on every node in one mesh. Do not commit it to Git. Example for Bash:
 
 ```bash
 export AIRBRIDGE_SHARED_SECRET="$(openssl rand -hex 32)"
@@ -94,9 +96,9 @@ $env:AIRBRIDGE_SHARED_SECRET = -join ($bytes | ForEach-Object { $_.ToString('x2'
 $rng.Dispose()
 ```
 
-Pass it at build time. The secret encrypts message envelopes and authenticates discovery, WebSocket handshakes, and signed HTTP writes. It is embedded in the binary, so it is not a hardware-backed secret against someone who can extract the APK; use per-install provisioning/key management for higher assurance. HTTP request bodies to `/api/write` are still cleartext on the LAN before the node wraps them in an encrypted envelope, so call that endpoint only on a trusted subnet or add TLS at the transport boundary.
+Append `--dart-define=AIRBRIDGE_SHARED_SECRET=<32-byte-random-hex>` to any `flutter build` or `flutter run` command on every peer that should use payload encryption; omit it on every peer for QR-only pairing. It is embedded in the binary, so it is not a hardware-backed secret against someone who can extract the APK; use per-install provisioning/key management for higher assurance. HTTP request bodies to `/api/write` are still cleartext on the LAN before the node wraps them in an encrypted envelope, so call that endpoint only on a trusted subnet or add TLS at the transport boundary. When a shared secret is configured, it is used for legacy/shared-secret authentication; QR-paired per-device credentials are still available.
 
-For a quick open-LAN development build, omit the define. In that mode payload data, discovery beacons, and WebSocket links are unauthenticated/unencrypted. Do not use open-LAN mode on an untrusted network.
+Unpaired mesh links and unsigned HTTP writes are rejected even when `AIRBRIDGE_SHARED_SECRET` is omitted. Discovery beacons without a shared secret advertise metadata without a signature; pairing is still required before a WebSocket mesh link is accepted.
 
 ## 4. Android APK
 
@@ -108,20 +110,26 @@ adb devices
 adb install -r build/app/outputs/flutter-apk/app-debug.apk
 ```
 
-Release APK (all peers must use the same secret):
+Release APK with passwordless QR pairing (no build-time secret required):
+
+```bash
+flutter build apk --release
+adb install -r build/app/outputs/flutter-apk/app-release.apk
+```
+
+For AES-256-GCM payload encryption, all peers must be built with the same secret:
 
 ```bash
 flutter build apk --release --dart-define=AIRBRIDGE_SHARED_SECRET="$AIRBRIDGE_SHARED_SECRET"
-adb install -r build/app/outputs/flutter-apk/app-release.apk
 ```
 
 To run directly on a connected device during development:
 
 ```bash
-flutter run -d <device-id> --dart-define=AIRBRIDGE_SHARED_SECRET="$AIRBRIDGE_SHARED_SECRET"
+flutter run -d <device-id>
 ```
 
-The manifest requests `INTERNET`, `ACCESS_NETWORK_STATE`, `ACCESS_WIFI_STATE`, `CHANGE_WIFI_MULTICAST_STATE`, and `WAKE_LOCK`, allows cleartext LAN HTTP, and installs the native `WifiManager.MulticastLock` bridge. Allow the app through the Wi-Fi network's client-isolation/firewall settings. Some access points block client-to-client UDP broadcast regardless of app permissions.
+The manifest requests `INTERNET`, `ACCESS_NETWORK_STATE`, `ACCESS_WIFI_STATE`, `CHANGE_WIFI_MULTICAST_STATE`, `WAKE_LOCK`, and optional camera access for QR scanning; it allows cleartext LAN HTTP and installs the native `WifiManager.MulticastLock` bridge. Allow the app through the Wi-Fi network's client-isolation/firewall settings. Some access points block client-to-client UDP broadcast regardless of app permissions.
 
 ## 5. Windows
 
@@ -129,7 +137,7 @@ Build on Windows after installing the Visual Studio workload listed above:
 
 ```powershell
 cd airbridge_mobile
-flutter build windows --release --dart-define=AIRBRIDGE_SHARED_SECRET="$env:AIRBRIDGE_SHARED_SECRET"
+flutter build windows --release
 ```
 
 The executable and required runtime files are under `build\windows\x64\runner\Release\`. Windows Defender Firewall may prompt for permission to accept inbound connections; allow Airbridge on the trusted private LAN profile.
@@ -142,7 +150,7 @@ On Debian/Ubuntu, for example:
 sudo apt-get update
 sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev
 cd airbridge_mobile
-flutter build linux --release --dart-define=AIRBRIDGE_SHARED_SECRET="$AIRBRIDGE_SHARED_SECRET"
+flutter build linux --release
 ```
 
 The bundle is under `build/linux/x64/release/bundle/`. Allow the configured TCP/UDP ports in the host firewall.
@@ -153,7 +161,7 @@ Build on macOS with Xcode and CocoaPods installed:
 
 ```bash
 cd airbridge_mobile
-flutter build macos --release --dart-define=AIRBRIDGE_SHARED_SECRET="$AIRBRIDGE_SHARED_SECRET"
+flutter build macos --release
 ```
 
 The app is under `build/macos/Build/Products/Release/`. macOS may ask for Local Network access; approve it. The bootstrap adds client/server network entitlements for the generated macOS sandbox profile.
@@ -164,29 +172,20 @@ Build only on macOS with Xcode/CocoaPods:
 
 ```bash
 cd airbridge_mobile
-flutter build ios --release --no-codesign --dart-define=AIRBRIDGE_SHARED_SECRET="$AIRBRIDGE_SHARED_SECRET"
+flutter build ios --release --no-codesign
 ```
 
 For a signed IPA, set a team in Xcode or provide normal Flutter signing options, then run:
 
 ```bash
-flutter build ipa --release --dart-define=AIRBRIDGE_SHARED_SECRET="$AIRBRIDGE_SHARED_SECRET"
+flutter build ipa --release
 ```
 
 Open `ios/Runner.xcworkspace` in Xcode to select the signing team and install on a device. iOS asks the user for Local Network permission. UDP broadcast/multicast discovery also requires Apple's `com.apple.developer.networking.multicast` entitlement to be enabled for the App ID and included in the provisioning profile; the bootstrap configures the entitlement file, but Apple approval/profile provisioning is an external prerequisite. The app is a foreground peer: iOS can suspend its sockets when backgrounded.
 
 ## 9. API smoke test
 
-Without a configured secret:
-
-```bash
-curl http://<node-ip>:8765/status
-curl -X POST http://<node-ip>:8765/api/write \
-  -H 'Content-Type: application/json' \
-  -d '{"payload":{"text":"hello from curl"}}'
-```
-
-When built with a shared secret, sign the exact request body bytes plus a timestamp and one-time nonce. The server accepts timestamps within 120 seconds and rejects a nonce replay:
+`/status` is public for discovery/diagnostics. Anonymous writes are rejected. Pair app devices through the QR flow; for direct HTTP writes from a trusted script, build the node with `AIRBRIDGE_SHARED_SECRET` and sign the exact request body bytes plus a timestamp and one-time nonce. The server accepts timestamps within 120 seconds and rejects a nonce replay:
 
 ```bash
 BODY='{"payload":{"text":"hello from curl"}}'
@@ -201,7 +200,7 @@ curl -X POST "http://<node-ip>:8765/api/write" \
   --data-binary "$BODY"
 ```
 
-The WebSocket endpoint is `ws://<node-ip>:8765/ws`. The server first sends a random `challenge` frame. Reply with `{"type":"auth","deviceId":"<client-id>","signature":"<hex-hmac>"}`, where the signature is HMAC-SHA256 of `airbridge-ws-v1:<challenge-nonce>:<client-id>`. Then wait for `hello`; clients may send `{"type":"write","payload":...}`.
+The WebSocket endpoint is `ws://<node-ip>:8765/ws`. The server first sends a random `challenge` frame. Reply with `{"type":"auth","deviceId":"<client-id>","signature":"<hex-hmac>"}`, where the signature is HMAC-SHA256 of `airbridge-ws-v1:<challenge-nonce>:<client-id>` under the configured installation-wide secret or the per-device key established by QR pairing. Unpaired IDs are rejected; there is no unsigned/open-LAN WebSocket mode. Then wait for `hello`; clients may send `{"type":"write","payload":...}`.
 
 ## Ports and network constraints
 
@@ -214,7 +213,7 @@ Defaults are TCP `8765` and UDP `47660`, configurable with `--dart-define=AIRBRI
 1. Put both devices on the same reachable LAN/subnet. Guest Wi-Fi, VPNs, and router/AP **client isolation** commonly block peer traffic.
 2. Use the same UDP port (`47660` by default) on every peer and allow inbound UDP on that port. Also allow inbound TCP (`8765` by default) for API/WebSocket traffic.
 3. If a shared secret is configured, rebuild **every peer** with the same `AIRBRIDGE_SHARED_SECRET`. Discovery beacons are authenticated; a mismatched key causes them to be ignored. Changing the environment variable does not alter an already-built app.
-4. Keep the app open in the foreground while testing. Check the dashboard's System log for startup or socket errors.
+4. Scan the host device's one-time pairing QR and compare the six-digit verification code on both screens. Discovery can list unpaired devices, but they will not establish a mesh link. Keep the app open in the foreground while testing and check the dashboard's System log for startup or socket errors.
 
 On Windows, inspect listeners from PowerShell:
 
@@ -235,7 +234,7 @@ For Linux with UFW, allow the corresponding ports with `sudo ufw allow 8765/tcp`
 
 ### `/status` works, but writes fail
 
-* `401 Unauthorized`: with a shared secret, check that the HMAC uses the exact request body bytes, current Unix timestamp in seconds, a fresh nonce, and the same secret as the node. Requests older than 120 seconds and reused nonces are rejected. See the signed `curl` example above.
+* `401 Unauthorized`: direct HTTP writes require a valid HMAC. Check the exact body bytes, current Unix timestamp in seconds, a fresh nonce, and the configured shared secret; app-to-app HTTP writes must also identify a paired device. Requests older than 120 seconds, unpaired identities, and reused nonces are rejected. See the signed `curl` example above.
 * `400 Bad Request`: send a JSON object with a `payload` field, for example `{"payload":{"text":"hello"}}`.
 * `413 Payload Too Large`: the encoded payload exceeds `AIRBRIDGE_MAX_PAYLOAD_BYTES` (1 MiB by default). Increase it at build time only if needed; the supported range is 1 KiB to 16 MiB.
 * `503 Service Unavailable`: the bounded worker queue, HTTP request capacity, or pending WebSocket-handshake limit is full. Retry shortly; repeated responses can indicate sustained load or an unauthenticated client flood.
@@ -246,7 +245,7 @@ The dashboard log should show the bind error. On Windows, find the process using
 
 ### WebSocket does not connect
 
-The client must connect to `ws://<peer-ip>:8765/ws`, read the server's first `challenge` frame, reply with the HMAC-authenticated `auth` frame described above, then wait for `hello`. Check that TCP `8765` is reachable and that both nodes use the same secret. In open-LAN mode, the auth frame still needs a `deviceId`, but no signature is required.
+The client must connect to `ws://<peer-ip>:8765/ws`, read the server's first `challenge` frame, reply with the HMAC-authenticated `auth` frame described above, then wait for `hello`. Check that TCP `8765` is reachable and that the devices completed QR pairing, or that both were built with the same installation-wide secret. Unpaired peers are rejected.
 
 ### Android SDK is not found on Windows
 

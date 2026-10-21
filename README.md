@@ -1,5 +1,5 @@
 # Airbridge
 
-Airbridge Mobile is a Flutter/Dart implementation of an Airbridge LAN mesh node. The mobile/desktop application runs its own HTTP + WebSocket gateway, UDP-broadcast peer discovery, encrypted message spool, and responsive dashboard.
+Airbridge Mobile is a Flutter/Dart implementation of an Airbridge LAN mesh node. The mobile/desktop application runs its own HTTP + WebSocket gateway, QR-based passwordless device pairing, UDP-broadcast peer discovery, optionally encrypted message spool, and responsive dashboard.
 
 See [`airbridge_mobile/README.md`](airbridge_mobile/README.md) for the architecture, [`airbridge_mobile/build_instructions.md`](airbridge_mobile/build_instructions.md) for Android APK, Windows, Linux, macOS, and iOS build/deployment steps, and [`docs/improvement_roadmap.md`](docs/improvement_roadmap.md) for the phased improvement program.

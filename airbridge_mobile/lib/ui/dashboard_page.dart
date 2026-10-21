@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import '../models/node_message.dart';
 import '../models/peer.dart';
 import '../services/node_controller.dart';
+import 'pairing_dialog.dart';
 
 const Color _background = Color(0xFF0B0F19);
 const Color _panel = Color(0xDD111827);
@@ -174,6 +175,14 @@ class _NodeHeader extends StatelessWidget {
                     ),
                   ],
                 ),
+              ),
+              IconButton(
+                tooltip: 'Pair a device with QR',
+                onPressed: controller.isRunning
+                    ? () => showPairingDialog(context, controller)
+                    : null,
+                color: _mint,
+                icon: const Icon(Icons.qr_code_2_rounded),
               ),
               _RoleBadge(isMaster: isMaster),
             ],
@@ -351,8 +360,8 @@ class _TerminalPanel extends StatelessWidget {
                 Expanded(
                   child: Text(
                     controller.hasSharedSecret
-                        ? 'AES-256-GCM enabled  •  HMAC-authenticated mesh'
-                        : 'Open LAN mode  •  configure AIRBRIDGE_SHARED_SECRET for protection',
+                        ? 'AES-256-GCM payloads  •  HMAC-authenticated mesh'
+                        : 'QR pairing required  •  payloads are cleartext',
                     style: TextStyle(
                       color: controller.hasSharedSecret ? _mint : const Color(0xFFFFC977),
                       fontSize: 11,
@@ -391,6 +400,7 @@ class _PeerPanel extends StatelessWidget {
   Widget build(BuildContext context) {
     final peers = controller.peers;
     final connected = controller.connectedPeerIds;
+    final trusted = controller.trustedPeers.map((peer) => peer.deviceId).toSet();
     return _GlassPanel(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -430,6 +440,7 @@ class _PeerPanel extends StatelessWidget {
                 child: _PeerTile(
                   peer: peer,
                   linked: connected.contains(peer.deviceId),
+                  trusted: controller.hasSharedSecret || trusted.contains(peer.deviceId),
                 ),
               ),
             ),
@@ -440,14 +451,24 @@ class _PeerPanel extends StatelessWidget {
 }
 
 class _PeerTile extends StatelessWidget {
-  const _PeerTile({required this.peer, required this.linked});
+  const _PeerTile({
+    required this.peer,
+    required this.linked,
+    required this.trusted,
+  });
 
   final Peer peer;
   final bool linked;
+  final bool trusted;
 
   @override
   Widget build(BuildContext context) {
     final accent = linked ? _mint : const Color(0xFF71809B);
+    final connectionStatus = linked
+        ? 'WebSocket linked'
+        : trusted
+            ? 'Trusted • connecting'
+            : 'Unpaired • scan QR';
     return Container(
       padding: const EdgeInsets.all(11),
       decoration: BoxDecoration(
@@ -497,7 +518,7 @@ class _PeerTile extends StatelessWidget {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  '${peer.host}:${peer.httpPort}  •  ${linked ? 'WebSocket linked' : 'discovered'}',
+                  '${peer.host}:${peer.httpPort}  •  $connectionStatus',
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(color: _muted, fontSize: 10),
                 ),

@@ -42,6 +42,9 @@ def update_apple_info(values: dict) -> None:
         "Airbridge discovers and exchanges data with peers on your local network."
     )
     values["NSBonjourServices"] = ["_airbridge._tcp"]
+    values["NSCameraUsageDescription"] = (
+        "Airbridge uses the camera only to scan a nearby device's one-time pairing QR."
+    )
     transport = values.setdefault("NSAppTransportSecurity", {})
     transport["NSAllowsLocalNetworking"] = True
     # The app only uses cleartext for its configured local peer endpoints.

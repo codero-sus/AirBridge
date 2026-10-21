@@ -12,14 +12,20 @@ import '../models/peer.dart';
 import 'android_network_bridge.dart';
 import 'api_gateway.dart';
 import 'discovery_service.dart';
+import 'pairing_service.dart';
 import 'task_worker.dart';
 
 class NodeController extends ChangeNotifier {
   NodeController(this.config) {
     _masterId = config.deviceId;
+    _pairing = PairingService(
+      config: config,
+      onPeerTrusted: _handleTrustedPeer,
+    );
   }
 
   final NodeConfig config;
+  late final PairingService _pairing;
   TaskWorker _worker = TaskWorker(maxConcurrent: 2, maxQueued: 64);
   final Map<String, Peer> _peers = <String, Peer>{};
   final List<NodeMessage> _messages = <NodeMessage>[];
@@ -48,6 +54,7 @@ class NodeController extends ChangeNotifier {
   String get lifecycle => _lifecycle;
   bool get isRunning => _lifecycle == 'online';
   bool get hasSharedSecret => config.hasSharedSecret;
+  List<TrustedPeer> get trustedPeers => _pairing.trustedPeers;
   int get connectedPeerCount => _gateway?.connectedPeerIds.length ?? 0;
   Set<String> get connectedPeerIds =>
       Set<String>.unmodifiable(_gateway?.connectedPeerIds ?? const <String>{});
@@ -90,6 +97,7 @@ class NodeController extends ChangeNotifier {
         _recordLog('WARN', 'Could not acquire Android MulticastLock: $error');
       }
 
+      await _pairing.load();
       await _restorePersistedMessages();
       _localAddress = await _resolveLocalAddress();
       _gateway = ApiGateway(
@@ -99,6 +107,8 @@ class NodeController extends ChangeNotifier {
         onEnvelope: _handleEnvelope,
         onLog: _recordLog,
         onConnectionsChanged: _handleConnectionChange,
+        peerSecretProvider: _pairing.secretForPeer,
+        pairingClaimHandler: _pairing.handleClaim,
       );
       await _gateway!.start();
 
@@ -117,7 +127,7 @@ class NodeController extends ChangeNotifier {
       if (!config.hasSharedSecret) {
         _recordLog(
           'WARN',
-          'No shared secret configured: local mesh traffic is open and payloads are not encrypted.',
+          'Per-device pairing authentication is active, but mesh payloads are not encrypted. Configure AIRBRIDGE_SHARED_SECRET if payload encryption is required.',
         );
       } else if (config.sharedSecret.length < 32) {
         _recordLog(
@@ -146,6 +156,7 @@ class NodeController extends ChangeNotifier {
   Future<void> stop() async {
     if (_stopping) return;
     _stopping = true;
+    _pairing.cancelActiveInvitation();
     _lifecycle = 'stopping';
     if (_starting) await _startupDone?.future;
     _addressRefreshTimer?.cancel();
@@ -157,6 +168,35 @@ class NodeController extends ChangeNotifier {
     _stopping = false;
     _lifecycle = 'stopped';
     _recordLog('INFO', 'Airbridge node stopped.');
+  }
+
+  Future<PairingInvitation> createPairingInvitation() {
+    if (!_started || _localAddress == 'Unavailable' || _localAddress == 'Resolving…') {
+      throw const PairingException('The node must be online on a local network to show a pairing QR.');
+    }
+    return _pairing.createInvitation(
+      hostAddress: _localAddress,
+      httpPort: config.httpPort,
+      udpPort: config.udpPort,
+    );
+  }
+
+  Future<TrustedPeer> joinPairingInvitation(String qrPayload) {
+    if (!_started) {
+      throw const PairingException('Start the Airbridge node before pairing a device.');
+    }
+    return _pairing.joinInvitation(
+      qrPayload: qrPayload,
+      httpPort: config.httpPort,
+      udpPort: config.udpPort,
+    );
+  }
+
+  bool isPairingInvitationActive(PairingInvitation invitation) =>
+      _pairing.isInvitationActive(invitation);
+
+  void cancelPairingInvitation(PairingInvitation invitation) {
+    _pairing.cancelInvitation(invitation);
   }
 
   Future<void> sendPayload(Object? payload) async {
@@ -186,6 +226,7 @@ class NodeController extends ChangeNotifier {
         'masterId': _masterId,
         'lifecycle': _lifecycle,
         'peerCount': _peers.length,
+        'trustedPeerCount': trustedPeers.length,
         'connectedPeerCount': connectedPeerCount,
         'connectedPeerIds': connectedPeerIds.toList(growable: false),
       };
@@ -276,6 +317,25 @@ class NodeController extends ChangeNotifier {
       'DATA',
       '${local ? 'Dispatched' : 'Received'} message ${envelope['id']}.',
     );
+  }
+
+  void _handleTrustedPeer(TrustedPeer trusted, String remoteHost) {
+    if (trusted.deviceId == config.deviceId) return;
+    final peer = Peer(
+      deviceId: trusted.deviceId,
+      deviceName: trusted.deviceName,
+      host: remoteHost,
+      httpPort: trusted.httpPort,
+      udpPort: trusted.udpPort,
+      lastSeen: DateTime.now(),
+      role: 'peer',
+      masterId: _masterId,
+    );
+    _peers[peer.deviceId] = peer;
+    _invalidatePeerSnapshot();
+    _recomputeElection();
+    _gateway?.updatePeer(peer);
+    _recordLog('SECURITY', 'Passwordless QR pairing trusted ${peer.deviceName}.');
   }
 
   void _handlePeerSeen(Peer peer) {

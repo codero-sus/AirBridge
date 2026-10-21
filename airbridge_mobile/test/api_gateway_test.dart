@@ -41,6 +41,7 @@ NodeConfig _testConfig({
   required String deviceName,
   required Directory directory,
   required int httpPort,
+  String sharedSecret = _sharedSecret,
 }) =>
     NodeConfig.forTesting(
       deviceId: deviceId,
@@ -48,7 +49,7 @@ NodeConfig _testConfig({
       supportDirectory: directory,
       messageDirectory: directory,
       httpPort: httpPort,
-      sharedSecret: _sharedSecret,
+      sharedSecret: sharedSecret,
     );
 
 PayloadFactory _envelopeFactory(String senderId) {
@@ -220,6 +221,44 @@ void main() {
         gotAccepted |= frame['type'] == 'accepted';
       }
       expect(received, hasLength(2));
+    });
+  });
+
+  test('rejects unsigned HTTP writes when no trusted peer key exists', () async {
+    await _withDirectHttp(() async {
+      final directory = await _newDirectory('unpaired-write');
+      final port = await _availablePort();
+      final config = _testConfig(
+        deviceId: _leftId,
+        deviceName: 'Pairing-only node',
+        directory: directory,
+        httpPort: port,
+        sharedSecret: '',
+      );
+      final gateway = ApiGateway(
+        config: config,
+        statusProvider: () => <String, Object?>{'deviceId': config.deviceId},
+        payloadFactory: _envelopeFactory(config.deviceId),
+        onEnvelope: (_, {required local}) async {},
+        onLog: (_, __) {},
+        onConnectionsChanged: () {},
+      );
+      final client = HttpClient()..findProxy = (_) => 'DIRECT';
+      await gateway.start();
+      addTearDown(() async {
+        client.close(force: true);
+        await gateway.stop();
+        if (await directory.exists()) await directory.delete(recursive: true);
+      });
+
+      final request = await client.postUrl(
+        Uri.parse('http://127.0.0.1:$port/api/write'),
+      );
+      request.headers.contentType = ContentType.json;
+      request.write('{"payload":"must be rejected"}');
+      final response = await request.close();
+      await response.drain<void>();
+      expect(response.statusCode, HttpStatus.unauthorized);
     });
   });
 

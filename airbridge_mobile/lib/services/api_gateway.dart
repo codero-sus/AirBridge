@@ -22,6 +22,11 @@ typedef EnvelopeCallback = Future<void> Function(
 });
 typedef GatewayLogCallback = void Function(String level, String message);
 typedef GatewayChangeCallback = void Function();
+typedef PeerSecretProvider = String? Function(String deviceId);
+typedef PairingClaimHandler = Future<(int, Map<String, Object?>)> Function(
+  Map<String, dynamic> claim,
+  String remoteHost,
+);
 
 /// HTTP/WS gateway and outbound peer mesh. The listener always binds all IPv4
 /// interfaces. One WebSocket is initiated per peer pair by the lower node ID.
@@ -33,6 +38,8 @@ class ApiGateway {
     required this.onEnvelope,
     required this.onLog,
     required this.onConnectionsChanged,
+    this.peerSecretProvider,
+    this.pairingClaimHandler,
     this.maxConcurrentHttpRequests = 128,
     this.maxPendingWebSocketHandshakes = 32,
   }) {
@@ -47,6 +54,8 @@ class ApiGateway {
   final EnvelopeCallback onEnvelope;
   final GatewayLogCallback onLog;
   final GatewayChangeCallback onConnectionsChanged;
+  final PeerSecretProvider? peerSecretProvider;
+  final PairingClaimHandler? pairingClaimHandler;
   final int maxConcurrentHttpRequests;
   final int maxPendingWebSocketHandshakes;
 
@@ -228,6 +237,10 @@ class ApiGateway {
         await _sendJson(request.response, HttpStatus.ok, statusProvider());
         return;
       }
+      if (request.method == 'POST' && path == '/pair/claim') {
+        await _handlePairingClaim(request);
+        return;
+      }
       if (request.method == 'POST' && path == '/api/write') {
         await _handleWriteRequest(request);
         return;
@@ -274,9 +287,36 @@ class ApiGateway {
     }
   }
 
+  Future<void> _handlePairingClaim(HttpRequest request) async {
+    final handler = pairingClaimHandler;
+    if (handler == null) {
+      await _sendJson(request.response, HttpStatus.notFound, <String, Object?>{
+        'error': 'Pairing is not enabled on this node.',
+      });
+      return;
+    }
+    final body = await _readBoundedBody(request, maxBytes: 16 * 1024);
+    final decoded = jsonDecode(utf8.decode(body));
+    if (decoded is! Map<String, dynamic>) {
+      throw const FormatException('Pairing claim must be a JSON object.');
+    }
+    final remoteHost = request.connectionInfo?.remoteAddress.address ?? 'unknown';
+    final result = await handler(decoded, remoteHost);
+    await _sendJson(request.response, result.$1, result.$2);
+  }
+
   Future<void> _handleWriteRequest(HttpRequest request) async {
     final body = await _readBoundedBody(request);
-    if (config.hasSharedSecret && !_verifyHttpSignature(request, body)) {
+    final deviceId = request.headers.value('x-airbridge-device-id');
+    final peerSecret = deviceId == null ? null : peerSecretProvider?.call(deviceId);
+    final secret = peerSecret ?? (config.hasSharedSecret ? config.sharedSecret : null);
+    if (secret == null ||
+        !_verifyHttpSignature(
+          request,
+          body,
+          secret,
+          deviceId: peerSecret == null ? null : deviceId,
+        )) {
       await _sendJson(request.response, HttpStatus.unauthorized, <String, Object?>{
         'error': 'Missing, expired, replayed, or invalid Airbridge request signature.',
       });
@@ -300,9 +340,12 @@ class ApiGateway {
     });
   }
 
-  Future<List<int>> _readBoundedBody(HttpRequest request) async {
+  Future<List<int>> _readBoundedBody(
+    HttpRequest request, {
+    int? maxBytes,
+  }) async {
     final advertisedLength = request.contentLength;
-    final maxLength = config.maxPayloadBytes + 64 * 1024;
+    final maxLength = maxBytes ?? config.maxPayloadBytes + 64 * 1024;
     if (advertisedLength > maxLength) throw const _PayloadTooLargeException();
     final builder = BytesBuilder(copy: false);
     await for (final chunk in request) {
@@ -314,7 +357,12 @@ class ApiGateway {
     return builder.takeBytes();
   }
 
-  bool _verifyHttpSignature(HttpRequest request, List<int> body) {
+  bool _verifyHttpSignature(
+    HttpRequest request,
+    List<int> body,
+    String secret, {
+    String? deviceId,
+  }) {
     final timestampText = request.headers.value('x-airbridge-timestamp');
     final nonce = request.headers.value('x-airbridge-nonce');
     final signature = request.headers.value('x-airbridge-signature');
@@ -335,16 +383,15 @@ class ApiGateway {
     for (final expired in expiredNonces) {
       _httpNonces.remove(expired);
     }
-    if (_httpNonces.containsKey(nonce)) return false;
+    final nonceKey = deviceId == null ? nonce : '$deviceId:$nonce';
+    if (_httpNonces.containsKey(nonceKey)) return false;
 
-    final signedBytes = <int>[
-      ...utf8.encode('$timestamp.$nonce.'),
-      ...body,
-    ];
-    if (!verifyHmacSha256Hex(config.sharedSecret, signedBytes, signature)) {
-      return false;
-    }
-    _httpNonces[nonce] = now;
+    final signedPrefix = deviceId == null
+        ? '$timestamp.$nonce.'
+        : '$timestamp.$nonce.$deviceId.';
+    final signedBytes = <int>[...utf8.encode(signedPrefix), ...body];
+    if (!verifyHmacSha256Hex(secret, signedBytes, signature)) return false;
+    _httpNonces[nonceKey] = now;
     while (_httpNonces.length > 10000) {
       _httpNonces.remove(_httpNonces.keys.first);
     }
@@ -373,17 +420,18 @@ class ApiGateway {
       final auth = _decodeFrame(iterator.current);
       final deviceId = auth?['deviceId'];
       final signature = auth?['signature'];
+      final peerSecret = deviceId is String ? _secretForPeer(deviceId) : null;
       if (auth?['type'] != 'auth' ||
           deviceId is! String ||
           deviceId.isEmpty ||
           deviceId.length > 64 ||
           deviceId == config.deviceId ||
-          (config.hasSharedSecret &&
-              !verifyHmacSha256Hex(
-                config.sharedSecret,
-                utf8.encode('airbridge-ws-v1:$challenge:$deviceId'),
-                signature is String ? signature : null,
-              ))) {
+          peerSecret == null ||
+          !verifyHmacSha256Hex(
+            peerSecret,
+            utf8.encode('airbridge-ws-v1:$challenge:$deviceId'),
+            signature is String ? signature : null,
+          )) {
         await socket.close(WebSocketStatus.policyViolation, 'Invalid Airbridge auth');
         return;
       }
@@ -602,18 +650,25 @@ class ApiGateway {
         'serviceType': NodeConfig.serviceType,
       };
 
-  String _authFrame(String challenge) {
-    final frame = <String, Object?>{
+  String? _secretForPeer(String peerId) {
+    final pairedSecret = peerSecretProvider?.call(peerId);
+    if (pairedSecret != null && pairedSecret.isNotEmpty) return pairedSecret;
+    return config.hasSharedSecret ? config.sharedSecret : null;
+  }
+
+  String _authFrame(String challenge, String peerId) {
+    final secret = _secretForPeer(peerId);
+    if (secret == null) {
+      throw StateError('This device has not been paired with $peerId.');
+    }
+    return jsonEncode(<String, Object?>{
       'type': 'auth',
       'deviceId': config.deviceId,
-    };
-    if (config.hasSharedSecret) {
-      frame['signature'] = hmacTextHex(
-        config.sharedSecret,
+      'signature': hmacTextHex(
+        secret,
         'airbridge-ws-v1:$challenge:${config.deviceId}',
-      );
-    }
-    return jsonEncode(frame);
+      ),
+    });
   }
 
   void _reconcilePeerConnections() {
@@ -621,6 +676,8 @@ class ApiGateway {
     final now = DateTime.now();
     for (final peer in _knownPeers.values) {
       if (_links.length + _dialing.length >= 256) return;
+      // Pairing is required when no installation-wide secret is configured.
+      if (_secretForPeer(peer.deviceId) == null) continue;
       // Deterministically choose one outbound connection per pair.
       if (config.deviceId.compareTo(peer.deviceId) >= 0) continue;
       final retryAt = _retryAfter[peer.deviceId];
@@ -677,7 +734,7 @@ class ApiGateway {
           challenge.length > 128) {
         throw const FormatException('Peer sent an invalid WebSocket challenge.');
       }
-      connectedSocket.add(_authFrame(challenge));
+      connectedSocket.add(_authFrame(challenge, peer.deviceId));
       final gotHello = await streamIterator.moveNext().timeout(
         const Duration(seconds: 8),
       );
