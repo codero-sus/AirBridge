@@ -42,22 +42,23 @@ IOS_MINIMUM_VERSION = "15.5"
 
 def update_ios_deployment_target() -> None:
     podfile = ROOT / "ios" / "Podfile"
-    if not podfile.is_file():
-        raise SystemExit(
-            f"Flutter iOS Podfile not found: {podfile.relative_to(ROOT)}. "
-            "Run tool/bootstrap_platforms.sh first."
+    if podfile.is_file():
+        text = podfile.read_text()
+        platform_line = f"platform :ios, '{IOS_MINIMUM_VERSION}'"
+        platform_pattern = re.compile(
+            r"(?m)^\s*#?\s*platform\s+:ios\s*,\s*['\"][^'\"]+['\"]\s*$"
         )
-    text = podfile.read_text()
-    platform_line = f"platform :ios, '{IOS_MINIMUM_VERSION}'"
-    platform_pattern = re.compile(
-        r"(?m)^\s*#?\s*platform\s+:ios\s*,\s*['\"][^'\"]+['\"]\s*$"
-    )
-    if platform_pattern.search(text):
-        text = platform_pattern.sub(platform_line, text, count=1)
+        if platform_pattern.search(text):
+            text = platform_pattern.sub(platform_line, text, count=1)
+        else:
+            text = f"{platform_line}\n{text}"
+        podfile.write_text(text)
+        print(
+            f"configured {podfile.relative_to(ROOT)} "
+            f"(iOS {IOS_MINIMUM_VERSION} minimum)"
+        )
     else:
-        text = f"{platform_line}\n{text}"
-    podfile.write_text(text)
-    print(f"configured {podfile.relative_to(ROOT)} (iOS {IOS_MINIMUM_VERSION} minimum)")
+        print("iOS Podfile not generated yet; deployment target will be reapplied after pub get")
 
     project = ROOT / "ios" / "Runner.xcodeproj" / "project.pbxproj"
     if project.is_file():

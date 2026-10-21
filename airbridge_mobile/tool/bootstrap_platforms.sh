@@ -33,3 +33,5 @@ fi
 
 python3 tool/configure_platforms.py
 flutter pub get
+# Some Flutter/plugin combinations generate the Podfile during dependency resolution.
+python3 tool/configure_platforms.py
