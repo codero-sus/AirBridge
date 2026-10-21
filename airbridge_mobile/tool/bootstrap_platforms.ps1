@@ -41,6 +41,14 @@ try {
 
     flutter pub get
     if ($LASTEXITCODE -ne 0) { throw 'flutter pub get failed.' }
+
+    # Some Flutter/plugin combinations generate the Podfile during dependency resolution.
+    if ($PythonLauncher) {
+        py -3 tool/configure_platforms.py
+    } else {
+        python tool/configure_platforms.py
+    }
+    if ($LASTEXITCODE -ne 0) { throw 'Platform configuration failed after pub get.' }
 } finally {
     if (Test-Path $TemporaryRoot) {
         Remove-Item -Recurse -Force $TemporaryRoot
