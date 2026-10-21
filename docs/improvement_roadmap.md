@@ -119,13 +119,13 @@ The `777+` request is being treated as a multi-release engineering program, not 
 
 ## Wave 6 — Passwordless QR pairing (101–107)
 
-- [ ] **101** Add five-minute, single-use QR pairing invitations with a random 256-bit key.
-- [ ] **102** Display a six-digit short authentication string for out-of-band code comparison.
-- [ ] **103** Derive per-device HMAC credentials and encrypt the pairing response with AES-GCM.
-- [ ] **104** Persist trusted peers and require their credentials for mesh links when no shared secret is configured.
-- [ ] **105** Add camera QR scanning on Android/iOS and a copy/paste fallback for desktop.
-- [ ] **106** Reject anonymous HTTP writes and WebSocket mesh links in per-device pairing mode.
-- [ ] **107** Test QR parsing, expiry, replay, bad-proof lockout, persistence, and paired WebSocket links.
+- [x] **101** Add five-minute, single-use QR pairing invitations with a random 256-bit key.
+- [x] **102** Display a six-digit short authentication string for out-of-band code comparison.
+- [x] **103** Derive per-device HMAC credentials and encrypt the pairing response with AES-GCM.
+- [x] **104** Persist trusted peers and require their credentials for mesh links when no shared secret is configured.
+- [x] **105** Add camera QR scanning on Android/iOS and a copy/paste fallback for desktop.
+- [x] **106** Reject anonymous HTTP writes and WebSocket mesh links in per-device pairing mode.
+- [x] **107** Test QR parsing, expiry, replay, bad-proof lockout, persistence, and paired WebSocket links.
 
 ## Delivery rules
 
