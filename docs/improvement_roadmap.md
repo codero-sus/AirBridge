@@ -1,6 +1,6 @@
 # AirBridge improvement program
 
-The `777+` request is being treated as a multi-release engineering program, not as a claim that hundreds of untested changes can safely ship in one patch. This first roadmap lists 100 concrete work items across reliability, security, dashboard/diagnostics, and build/release. Checked items are implemented in the current milestone; unchecked items remain planned. Later waves should add acceptance tests and preserve backward compatibility before landing.
+The `777+` request is being treated as a multi-release engineering program, not as a claim that hundreds of untested changes can safely ship in one patch. The initial backlog listed 100 concrete work items across reliability, security, dashboard/diagnostics, and build/release; the follow-up QR-pairing wave extends it to 107. Checked items are implemented and verified; unchecked items remain planned. Later waves should add acceptance tests and preserve backward compatibility before landing.
 
 ## Wave 1 — Reliability and secure-input baseline (001–020)
 
@@ -116,6 +116,16 @@ The `777+` request is being treated as a multi-release engineering program, not 
 - [ ] **098** Add a compatibility matrix for Android, iOS, Windows, Linux, and macOS.
 - [ ] **099** Add signed release builds and verify checksums for published packages.
 - [ ] **100** Review the roadmap after each release and expand the next wave with measured, non-duplicative tasks.
+
+## Wave 6 — Passwordless QR pairing (101–107)
+
+- [ ] **101** Add five-minute, single-use QR pairing invitations with a random 256-bit key.
+- [ ] **102** Display a six-digit short authentication string for out-of-band code comparison.
+- [ ] **103** Derive per-device HMAC credentials and encrypt the pairing response with AES-GCM.
+- [ ] **104** Persist trusted peers and require their credentials for mesh links when no shared secret is configured.
+- [ ] **105** Add camera QR scanning on Android/iOS and a copy/paste fallback for desktop.
+- [ ] **106** Reject anonymous HTTP writes and WebSocket mesh links in per-device pairing mode.
+- [ ] **107** Test QR parsing, expiry, replay, bad-proof lockout, persistence, and paired WebSocket links.
 
 ## Delivery rules
 
