@@ -20,8 +20,7 @@ Future<int> _availablePort() async {
 Future<void> _withDirectHttp(Future<void> Function() body) =>
     HttpOverrides.runZoned(
       body,
-      createHttpClient: (context) =>
-          HttpClient(context)..findProxy = (_) => 'DIRECT',
+      createHttpClient: (_) => HttpClient()..findProxy = (_) => 'DIRECT',
     );
 
 NodeConfig _config({
