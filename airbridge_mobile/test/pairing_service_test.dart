@@ -22,6 +22,7 @@ NodeConfig _config({
   required String deviceName,
   required Directory directory,
   required int httpPort,
+  String sharedSecret = '',
 }) =>
     NodeConfig.forTesting(
       deviceId: deviceId,
@@ -29,7 +30,7 @@ NodeConfig _config({
       supportDirectory: directory,
       messageDirectory: directory,
       httpPort: httpPort,
-      sharedSecret: '',
+      sharedSecret: sharedSecret,
     );
 
 void main() {
@@ -146,14 +147,14 @@ void main() {
       onEnvelope: (_, {required local}) async {},
       onLog: (_, __) {},
       onConnectionsChanged: () {
-        if (clientGateway!.connectedPeerIds.contains(_hostId) &&
+        if (clientGateway.connectedPeerIds.contains(_hostId) &&
             !clientLinked.isCompleted) {
           clientLinked.complete();
         }
       },
       peerSecretProvider: client.secretForPeer,
     );
-    await clientGateway!.start();
+    await clientGateway.start();
     gateway.updatePeer(
       Peer(
         deviceId: _clientId,
@@ -166,7 +167,7 @@ void main() {
         masterId: _hostId,
       ),
     );
-    clientGateway!.updatePeer(
+    clientGateway.updatePeer(
       Peer(
         deviceId: _hostId,
         deviceName: 'Host phone',
