@@ -17,11 +17,19 @@ Future<int> _availablePort() async {
   return port;
 }
 
-Future<void> _withDirectHttp(Future<void> Function() body) =>
-    HttpOverrides.runZoned(
-      body,
-      createHttpClient: (_) => HttpClient()..findProxy = (_) => 'DIRECT',
-    );
+Future<void> _withDirectHttp(Future<void> Function() body) {
+  final overrides = _DirectHttpOverrides();
+  return HttpOverrides.runZoned(
+    body,
+    createHttpClient: overrides.createHttpClient,
+  );
+}
+
+class _DirectHttpOverrides extends HttpOverrides {
+  @override
+  HttpClient createHttpClient(SecurityContext? context) =>
+      super.createHttpClient(context)..findProxy = (_) => 'DIRECT';
+}
 
 NodeConfig _config({
   required String deviceId,
