@@ -17,6 +17,13 @@ Future<int> _availablePort() async {
   return port;
 }
 
+Future<void> _withDirectHttp(Future<void> Function() body) =>
+    HttpOverrides.runZoned(
+      body,
+      createHttpClient: (context) =>
+          HttpClient(context)..findProxy = (_) => 'DIRECT',
+    );
+
 NodeConfig _config({
   required String deviceId,
   required String deviceName,
@@ -64,134 +71,136 @@ void main() {
   });
 
   test('QR pairing authenticates, encrypts the response, persists both trust records, and is one-use', () async {
-    final hostDirectory = await Directory.systemTemp.createTemp('airbridge-pair-host-');
-    final clientDirectory = await Directory.systemTemp.createTemp('airbridge-pair-client-');
-    final port = await _availablePort();
-    var clientPort = await _availablePort();
-    while (clientPort == port) {
-      clientPort = await _availablePort();
-    }
-    final hostConfig = _config(
-      deviceId: _hostId,
-      deviceName: 'Host phone',
-      directory: hostDirectory,
-      httpPort: port,
-    );
-    final clientConfig = _config(
-      deviceId: _clientId,
-      deviceName: 'Laptop',
-      directory: clientDirectory,
-      httpPort: clientPort,
-    );
-    var observedRemoteHost = '';
-    final host = PairingService(
-      config: hostConfig,
-      onPeerTrusted: (_, remoteHost) => observedRemoteHost = remoteHost,
-    );
-    final client = PairingService(config: clientConfig, onPeerTrusted: (_, __) {});
-    await host.load();
-    await client.load();
-    final invitation = await host.createInvitation(
-      hostAddress: '127.0.0.1',
-      httpPort: port,
-      udpPort: hostConfig.udpPort,
-    );
-    final hostLinked = Completer<void>();
-    final clientLinked = Completer<void>();
-    late ApiGateway gateway;
-    ApiGateway? clientGateway;
-    gateway = ApiGateway(
-      config: hostConfig,
-      statusProvider: () => <String, Object?>{'deviceId': _hostId},
-      payloadFactory: (_, {required senderName}) async => <String, dynamic>{},
-      onEnvelope: (_, {required local}) async {},
-      onLog: (_, __) {},
-      onConnectionsChanged: () {
-        if (gateway.connectedPeerIds.contains(_clientId) && !hostLinked.isCompleted) {
-          hostLinked.complete();
-        }
-      },
-      peerSecretProvider: host.secretForPeer,
-      pairingClaimHandler: host.handleClaim,
-    );
-    await gateway.start();
-    addTearDown(() async {
-      await clientGateway?.stop();
-      await gateway.stop();
-      if (await hostDirectory.exists()) await hostDirectory.delete(recursive: true);
-      if (await clientDirectory.exists()) await clientDirectory.delete(recursive: true);
-    });
-
-    final pairedHost = await client.joinInvitation(
-      qrPayload: invitation.qrPayload,
-      httpPort: clientConfig.httpPort,
-      udpPort: clientConfig.udpPort,
-    );
-    expect(pairedHost.deviceId, _hostId);
-    expect(pairedHost.deviceName, 'Host phone');
-    expect(host.secretForPeer(_clientId), isNotNull);
-    expect(client.secretForPeer(_hostId), host.secretForPeer(_clientId));
-    expect(observedRemoteHost, '127.0.0.1');
-
-    final reloadedHost = PairingService(config: hostConfig, onPeerTrusted: (_, __) {});
-    final reloadedClient = PairingService(config: clientConfig, onPeerTrusted: (_, __) {});
-    await reloadedHost.load();
-    await reloadedClient.load();
-    expect(reloadedHost.secretForPeer(_clientId), host.secretForPeer(_clientId));
-    expect(reloadedClient.secretForPeer(_hostId), client.secretForPeer(_hostId));
-
-    clientGateway = ApiGateway(
-      config: clientConfig,
-      statusProvider: () => <String, Object?>{'deviceId': _clientId},
-      payloadFactory: (_, {required senderName}) async => <String, dynamic>{},
-      onEnvelope: (_, {required local}) async {},
-      onLog: (_, __) {},
-      onConnectionsChanged: () {
-        if (clientGateway?.connectedPeerIds.contains(_hostId) == true &&
-            !clientLinked.isCompleted) {
-          clientLinked.complete();
-        }
-      },
-      peerSecretProvider: client.secretForPeer,
-    );
-    await clientGateway.start();
-    gateway.updatePeer(
-      Peer(
-        deviceId: _clientId,
-        deviceName: 'Laptop',
-        host: '127.0.0.1',
-        httpPort: clientPort,
-        udpPort: clientConfig.udpPort,
-        lastSeen: DateTime.now(),
-        role: 'peer',
-        masterId: _hostId,
-      ),
-    );
-    clientGateway.updatePeer(
-      Peer(
+    await _withDirectHttp(() async {
+      final hostDirectory = await Directory.systemTemp.createTemp('airbridge-pair-host-');
+      final clientDirectory = await Directory.systemTemp.createTemp('airbridge-pair-client-');
+      final port = await _availablePort();
+      var clientPort = await _availablePort();
+      while (clientPort == port) {
+        clientPort = await _availablePort();
+      }
+      final hostConfig = _config(
         deviceId: _hostId,
         deviceName: 'Host phone',
-        host: '127.0.0.1',
+        directory: hostDirectory,
+        httpPort: port,
+      );
+      final clientConfig = _config(
+        deviceId: _clientId,
+        deviceName: 'Laptop',
+        directory: clientDirectory,
+        httpPort: clientPort,
+      );
+      var observedRemoteHost = '';
+      final host = PairingService(
+        config: hostConfig,
+        onPeerTrusted: (_, remoteHost) => observedRemoteHost = remoteHost,
+      );
+      final client = PairingService(config: clientConfig, onPeerTrusted: (_, __) {});
+      await host.load();
+      await client.load();
+      final invitation = await host.createInvitation(
+        hostAddress: '127.0.0.1',
         httpPort: port,
         udpPort: hostConfig.udpPort,
-        lastSeen: DateTime.now(),
-        role: 'master',
-        masterId: _hostId,
-      ),
-    );
-    await Future.wait<void>(<Future<void>>[
-      hostLinked.future.timeout(const Duration(seconds: 10)),
-      clientLinked.future.timeout(const Duration(seconds: 10)),
-    ]);
+      );
+      final hostLinked = Completer<void>();
+      final clientLinked = Completer<void>();
+      late ApiGateway gateway;
+      ApiGateway? clientGateway;
+      gateway = ApiGateway(
+        config: hostConfig,
+        statusProvider: () => <String, Object?>{'deviceId': _hostId},
+        payloadFactory: (_, {required senderName}) async => <String, dynamic>{},
+        onEnvelope: (_, {required local}) async {},
+        onLog: (_, __) {},
+        onConnectionsChanged: () {
+          if (gateway.connectedPeerIds.contains(_clientId) && !hostLinked.isCompleted) {
+            hostLinked.complete();
+          }
+        },
+        peerSecretProvider: host.secretForPeer,
+        pairingClaimHandler: host.handleClaim,
+      );
+      await gateway.start();
+      addTearDown(() async {
+        await clientGateway?.stop();
+        await gateway.stop();
+        if (await hostDirectory.exists()) await hostDirectory.delete(recursive: true);
+        if (await clientDirectory.exists()) await clientDirectory.delete(recursive: true);
+      });
 
-    await expectLater(
-      client.joinInvitation(
+      final pairedHost = await client.joinInvitation(
         qrPayload: invitation.qrPayload,
         httpPort: clientConfig.httpPort,
         udpPort: clientConfig.udpPort,
-      ),
-      throwsA(isA<PairingException>()),
-    );
+      );
+      expect(pairedHost.deviceId, _hostId);
+      expect(pairedHost.deviceName, 'Host phone');
+      expect(host.secretForPeer(_clientId), isNotNull);
+      expect(client.secretForPeer(_hostId), host.secretForPeer(_clientId));
+      expect(observedRemoteHost, '127.0.0.1');
+
+      final reloadedHost = PairingService(config: hostConfig, onPeerTrusted: (_, __) {});
+      final reloadedClient = PairingService(config: clientConfig, onPeerTrusted: (_, __) {});
+      await reloadedHost.load();
+      await reloadedClient.load();
+      expect(reloadedHost.secretForPeer(_clientId), host.secretForPeer(_clientId));
+      expect(reloadedClient.secretForPeer(_hostId), client.secretForPeer(_hostId));
+
+      clientGateway = ApiGateway(
+        config: clientConfig,
+        statusProvider: () => <String, Object?>{'deviceId': _clientId},
+        payloadFactory: (_, {required senderName}) async => <String, dynamic>{},
+        onEnvelope: (_, {required local}) async {},
+        onLog: (_, __) {},
+        onConnectionsChanged: () {
+          if (clientGateway?.connectedPeerIds.contains(_hostId) == true &&
+              !clientLinked.isCompleted) {
+            clientLinked.complete();
+          }
+        },
+        peerSecretProvider: client.secretForPeer,
+      );
+      await clientGateway.start();
+      gateway.updatePeer(
+        Peer(
+          deviceId: _clientId,
+          deviceName: 'Laptop',
+          host: '127.0.0.1',
+          httpPort: clientPort,
+          udpPort: clientConfig.udpPort,
+          lastSeen: DateTime.now(),
+          role: 'peer',
+          masterId: _hostId,
+        ),
+      );
+      clientGateway.updatePeer(
+        Peer(
+          deviceId: _hostId,
+          deviceName: 'Host phone',
+          host: '127.0.0.1',
+          httpPort: port,
+          udpPort: hostConfig.udpPort,
+          lastSeen: DateTime.now(),
+          role: 'master',
+          masterId: _hostId,
+        ),
+      );
+      await Future.wait<void>(<Future<void>>[
+        hostLinked.future.timeout(const Duration(seconds: 10)),
+        clientLinked.future.timeout(const Duration(seconds: 10)),
+      ]);
+
+      await expectLater(
+        client.joinInvitation(
+          qrPayload: invitation.qrPayload,
+          httpPort: clientConfig.httpPort,
+          udpPort: clientConfig.udpPort,
+        ),
+        throwsA(isA<PairingException>()),
+      );
+    });
   });
 
   test('pairing refuses mixed installation-wide secret settings', () async {
