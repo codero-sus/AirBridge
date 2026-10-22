@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Apply Airbridge's native networking permissions to Flutter-generated hosts."""
+"""Apply Airbridge platform permissions, entitlements, targets, and logo overlays."""
 
 from __future__ import annotations
 
@@ -76,6 +76,32 @@ def update_ios_deployment_target() -> None:
             )
 
 
+def update_linux_window_icon() -> None:
+    runner = ROOT / "linux" / "runner" / "my_application.cc"
+    if not runner.is_file():
+        return
+    text = runner.read_text()
+    if "gtk_window_set_icon_from_file(window" in text:
+        return
+    marker = "GTK_WINDOW(gtk_application_window_new(GTK_APPLICATION(application)));"
+    if marker not in text:
+        print("Linux runner template changed; skipped automatic window icon setup")
+        return
+    icon_setup = '''
+
+  // Use the bundled official Airbridge logo as the native Linux window icon.
+  g_autofree gchar* executable_path = g_file_read_link("/proc/self/exe", nullptr);
+  if (executable_path != nullptr) {
+    g_autofree gchar* executable_directory = g_path_get_dirname(executable_path);
+    g_autofree gchar* logo_path = g_build_filename(
+        executable_directory, "data", "flutter_assets", "assets",
+        "airbridge_logo.png", nullptr);
+    gtk_window_set_icon_from_file(window, logo_path, nullptr);
+  }'''
+    runner.write_text(text.replace(marker, marker + icon_setup, 1))
+    print(f"configured {runner.relative_to(ROOT)} (official Airbridge window icon)")
+
+
 def update_apple_info(values: dict) -> None:
     values["CFBundleDisplayName"] = "Airbridge"
     values["NSLocalNetworkUsageDescription"] = (
@@ -130,6 +156,7 @@ def main() -> None:
     ios_entitlements = ROOT / "ios" / "Runner" / "Runner.entitlements"
     update_plist(ios_entitlements, update_ios_entitlements, create_if_missing=True)
     update_ios_deployment_target()
+    update_linux_window_icon()
 
     macos_info = ROOT / "macos" / "Runner" / "Info.plist"
     update_plist(macos_info, update_apple_info)

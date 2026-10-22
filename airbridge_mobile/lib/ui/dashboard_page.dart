@@ -142,18 +142,15 @@ class _NodeHeader extends StatelessWidget {
         children: <Widget>[
           Row(
             children: <Widget>[
-              Container(
-                width: 46,
-                height: 46,
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(15),
-                  gradient: const LinearGradient(
-                    colors: <Color>[Color(0xFF43D9B1), Color(0xFF4D83FF)],
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                  ),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(15),
+                child: Image.asset(
+                  'assets/airbridge_logo.png',
+                  width: 46,
+                  height: 46,
+                  fit: BoxFit.cover,
+                  semanticLabel: 'Airbridge logo',
                 ),
-                child: const Icon(Icons.hub_rounded, color: Color(0xFF06111A)),
               ),
               const SizedBox(width: 13),
               Expanded(

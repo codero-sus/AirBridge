@@ -175,7 +175,16 @@ class _PairingDialogState extends State<PairingDialog> {
             children: <Widget>[
               Row(
                 children: <Widget>[
-                  const Icon(Icons.qr_code_2_rounded, color: _pairMint),
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(9),
+                    child: Image.asset(
+                      'assets/airbridge_logo.png',
+                      width: 34,
+                      height: 34,
+                      fit: BoxFit.cover,
+                      semanticLabel: 'Airbridge logo',
+                    ),
+                  ),
                   const SizedBox(width: 10),
                   const Expanded(
                     child: Text(

@@ -1,5 +1,9 @@
 # Airbridge Mobile Node
 
+<p align="center">
+  <img src="assets/airbridge_logo.png" alt="Official Airbridge logo" width="160">
+</p>
+
 A single Flutter/Dart codebase for Android, iOS, Windows, Linux, and macOS. Flutter provides a native-rendered Material 3 UI; Dart's `dart:io` supplies real IPv4 UDP, HTTP, and WebSocket sockets without a separate embedded Python/Node runtime. CPU-heavy AES-GCM work and message-spool file operations run in bounded worker isolates, keeping the UI isolate responsive.
 
 ## Architecture
@@ -20,6 +24,7 @@ lib/
     task_worker.dart                bounded isolate queue, AES-GCM and spool
   ui/dashboard_page.dart            responsive dark dashboard
   ui/pairing_dialog.dart             QR display, camera scan, and manual paste
+assets/airbridge_logo.png            official in-app and launcher icon source
 platform_templates/                 native permissions/entitlement overlays
 ```
 
@@ -39,6 +44,6 @@ platform_templates/                 native permissions/entitlement overlays
 
 ## Prerequisites
 
-Install Flutter 3.24+ (with Dart 3.5+) and the native toolchain for the platform you build. Airbridge's iOS camera-scanning plugin requires iOS 15.5 or newer; bootstrap applies that deployment target. On first checkout, run the platform bootstrap command in `build_instructions.md`; it generates the standard Flutter host projects and installs this repository's Android/iOS/macOS platform configuration.
+Install Flutter 3.24+ (with Dart 3.5+) and the native toolchain for the platform you build. Airbridge's iOS camera-scanning plugin requires iOS 15.5 or newer; bootstrap applies that deployment target. On first checkout, run the platform bootstrap command in `build_instructions.md`; it generates the standard Flutter host projects, applies Android/iOS/macOS configuration, generates Android/iOS/macOS/Windows launcher icons, and sets the Linux window icon from the official logo asset.
 
 The app is intended to operate while foregrounded. Mobile operating systems can suspend sockets in the background. A production always-on Android deployment should add a user-visible Android foreground service; iOS does not permit an unrestricted always-on background server.
