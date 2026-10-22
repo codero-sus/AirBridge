@@ -42,6 +42,9 @@ try {
     flutter pub get
     if ($LASTEXITCODE -ne 0) { throw 'flutter pub get failed.' }
 
+    dart run flutter_launcher_icons
+    if ($LASTEXITCODE -ne 0) { throw 'Launcher icon generation failed.' }
+
     # Some Flutter/plugin combinations generate the Podfile during dependency resolution.
     if ($PythonLauncher) {
         py -3 tool/configure_platforms.py
