@@ -73,6 +73,8 @@ EOF
 
 # linuxdeploy collects the executable's shared-library dependencies and builds
 # an AppImage. Extract-and-run avoids requiring FUSE on GitHub-hosted runners.
+LINUXDEPLOY_LOG="$TEMP_ROOT/linuxdeploy.log"
+set +e
 (
   cd "$WORK_DIR"
   APPIMAGE_EXTRACT_AND_RUN=1 "$LINUXDEPLOY" \
@@ -81,7 +83,18 @@ EOF
     --desktop-file "$APPDIR/airbridge.desktop" \
     --icon-file "$APPDIR/airbridge.png" \
     --output appimage
-)
+) >"$LINUXDEPLOY_LOG" 2>&1
+LINUXDEPLOY_STATUS=$?
+set -e
+cat "$LINUXDEPLOY_LOG"
+if [[ "$LINUXDEPLOY_STATUS" -ne 0 ]]; then
+  diagnostics="$(tail -n 8 "$LINUXDEPLOY_LOG" | tr '\n' ' ')"
+  diagnostics="${diagnostics//'%'/'%25'}"
+  diagnostics="${diagnostics//$'\r'/'%0D'}"
+  diagnostics="${diagnostics//$'\n'/'%0A'}"
+  printf '::error::linuxdeploy exited %s: %s\n' "$LINUXDEPLOY_STATUS" "$diagnostics" >&2
+  exit "$LINUXDEPLOY_STATUS"
+fi
 
 mapfile -t generated_images < <(find "$WORK_DIR" -maxdepth 1 -type f -name '*.AppImage' -print)
 if [[ ${#generated_images[@]} -ne 1 ]]; then
