@@ -16,6 +16,18 @@ NodeController _newController() => NodeController(
       ),
     );
 
+void _setTestViewport(WidgetTester tester, Size size) {
+  tester.view
+    ..devicePixelRatio = 1
+    ..physicalSize = size;
+}
+
+void _resetTestViewport(WidgetTester tester) {
+  tester.view
+    ..resetPhysicalSize()
+    ..resetDevicePixelRatio();
+}
+
 void main() {
   testWidgets('desktop sidebar switches between dashboard sections', (
     tester,
@@ -24,10 +36,10 @@ void main() {
     addTearDown(() async {
       await tester.pumpWidget(const SizedBox.shrink());
       controller.dispose();
-      await tester.binding.setSurfaceSize(null);
+      _resetTestViewport(tester);
     });
 
-    await tester.binding.setSurfaceSize(const Size(1280, 900));
+    _setTestViewport(tester, const Size(1280, 900));
     await tester.pumpWidget(
       MaterialApp(home: DashboardPage(controller: controller)),
     );
@@ -54,10 +66,10 @@ void main() {
     addTearDown(() async {
       await tester.pumpWidget(const SizedBox.shrink());
       controller.dispose();
-      await tester.binding.setSurfaceSize(null);
+      _resetTestViewport(tester);
     });
 
-    await tester.binding.setSurfaceSize(const Size(390, 844));
+    _setTestViewport(tester, const Size(390, 844));
     await tester.pumpWidget(
       MaterialApp(home: DashboardPage(controller: controller)),
     );
