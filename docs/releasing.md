@@ -87,7 +87,7 @@ The output is `build\release\Airbridge-Windows-Setup-4.0.0.exe`. Change `4.0.0` 
 
 ### Linux AppImage (Linux x86_64)
 
-Install Flutter and AppImage packaging dependencies (`clang`, `cmake`, `ninja-build`, `pkg-config`, GTK 3 development headers, `patchelf`, `desktop-file-utils`, `curl`, and `libfuse2`), then:
+Install Flutter and AppImage packaging dependencies (`clang`, `cmake`, `ninja-build`, `pkg-config`, GTK 3 development headers, `patchelf`, `desktop-file-utils`, `curl`, `libfuse2`, and ImageMagick), then:
 
 ```bash
 cd airbridge_mobile
