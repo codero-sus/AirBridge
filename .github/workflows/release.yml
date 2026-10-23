@@ -20,7 +20,7 @@ jobs:
       app-version: ${{ steps.version.outputs.value }}
     steps:
       - name: Check out tagged source and history
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           fetch-depth: 0
 
@@ -58,7 +58,7 @@ jobs:
         working-directory: airbridge_mobile
     steps:
       - name: Check out source
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
       - name: Set up Flutter stable
         uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2  # v2
@@ -80,7 +80,7 @@ jobs:
           cp build/app/outputs/flutter-apk/app-release.apk "$RUNNER_TEMP/release-assets/Airbridge-Android.apk"
 
       - name: Upload Android release asset
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
         with:
           name: airbridge-release-android
           path: ${{ runner.temp }}/release-assets/Airbridge-Android.apk
@@ -97,12 +97,12 @@ jobs:
         working-directory: airbridge_mobile
     steps:
       - name: Check out source
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
       - name: Install Linux build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev patchelf desktop-file-utils curl
+          sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev patchelf desktop-file-utils curl libfuse2
 
       - name: Set up Flutter stable
         uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2  # v2
@@ -120,7 +120,7 @@ jobs:
         run: ./tool/package_linux_appimage.sh "$RUNNER_TEMP/release-assets"
 
       - name: Upload Linux release asset
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
         with:
           name: airbridge-release-linux
           path: ${{ runner.temp }}/release-assets/Airbridge-Linux-x86_64.AppImage
@@ -137,7 +137,7 @@ jobs:
         working-directory: airbridge_mobile
     steps:
       - name: Check out source
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
       - name: Set up Flutter stable
         uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2  # v2
@@ -163,7 +163,7 @@ jobs:
         run: .\tool\package_windows_installer.ps1 -AppVersion $env:APP_VERSION -OutputDirectory "$env:RUNNER_TEMP\release-assets"
 
       - name: Upload Windows release asset
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
         with:
           name: airbridge-release-windows
           path: ${{ runner.temp }}/release-assets/Airbridge-Windows-Setup-${{ needs.validate.outputs.app-version }}.exe
@@ -180,7 +180,7 @@ jobs:
         working-directory: airbridge_mobile
     steps:
       - name: Check out source
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
       - name: Set up Flutter stable
         uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2  # v2
@@ -198,7 +198,7 @@ jobs:
         run: ./tool/package_macos_dmg.sh "$RUNNER_TEMP/release-assets"
 
       - name: Upload macOS release asset
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
         with:
           name: airbridge-release-macos
           path: ${{ runner.temp }}/release-assets/Airbridge-macOS.dmg
@@ -221,7 +221,7 @@ jobs:
       id-token: write
     steps:
       - name: Download platform release assets
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8.0.2
         with:
           pattern: airbridge-release-*
           path: release-assets
