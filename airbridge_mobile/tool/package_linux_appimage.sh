@@ -1,5 +1,14 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -Eeuo pipefail
+
+on_error() {
+  local status=$?
+  local line="${1:-unknown}"
+  local command="${2:-unknown command}"
+  printf '::error::Linux AppImage packaging failed at line %s: %s (exit %s)\n' "$line" "$command" "$status" >&2
+  exit "$status"
+}
+trap 'on_error "$LINENO" "$BASH_COMMAND"' ERR
 
 if [[ $# -ne 1 ]]; then
   echo "Usage: $0 <output-directory>" >&2
@@ -40,6 +49,10 @@ curl --fail --location --silent --show-error --retry 3 \
   "https://github.com/linuxdeploy/linuxdeploy/releases/download/${LINUXDEPLOY_VERSION}/linuxdeploy-x86_64.AppImage"
 printf '%s  %s\n' "$LINUXDEPLOY_SHA256" "$LINUXDEPLOY" | sha256sum --check
 chmod +x "$LINUXDEPLOY"
+echo "linuxdeploy version:"
+APPIMAGE_EXTRACT_AND_RUN=1 "$LINUXDEPLOY" --version
+echo "linuxdeploy plugins:"
+APPIMAGE_EXTRACT_AND_RUN=1 "$LINUXDEPLOY" --list-plugins
 
 # Flutter locates its engine and data relative to the executable, so preserve
 # the entire release bundle together under usr/bin (never ship only the runner).

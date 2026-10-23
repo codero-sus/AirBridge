@@ -24,7 +24,7 @@ flutter doctor -v
 | --- | --- | --- |
 | Android `.apk` | Windows, macOS, or Linux | Android Studio (recommended) with Android SDK Command-line Tools, Platform-Tools (`adb`), and Android Build Tools; a JDK supported by Flutter. Accept licenses with `flutter doctor --android-licenses`. `adb` is only needed to install/test on a device, not to compile the APK. |
 | Windows installer `.exe` | Windows | Visual Studio 2022 with **Desktop development with C++**, MSVC C++ build tools, and a Windows 10/11 SDK. Install Inno Setup 6 to package the complete Flutter release folder into one installer executable. |
-| Linux `.AppImage` | Linux x86_64 | `clang`, `cmake`, `ninja-build`, `pkg-config`, GTK 3 development headers, `patchelf`, `desktop-file-utils`, `curl`, and a C++ standard library toolchain. The release packager downloads a pinned linuxdeploy AppImage and verifies its SHA-256 digest. |
+| Linux `.AppImage` | Linux x86_64 | `clang`, `cmake`, `ninja-build`, `pkg-config`, GTK 3 development headers, `patchelf`, `desktop-file-utils`, `curl`, `libfuse2`, and a C++ standard library toolchain. The release packager downloads a pinned linuxdeploy AppImage and verifies its SHA-256 digest. |
 | macOS `.dmg` | macOS | Xcode and CocoaPods. Xcode command-line tools must be selected and its license accepted. The current public DMG is unsigned and not notarized. |
 | iOS 15.5+ app / `.ipa` | macOS only | Xcode and CocoaPods. Airbridge's camera-scanning dependency requires iOS 15.5 or newer; bootstrap applies that deployment target. An unsigned build needs no signing identity; device installation or a distributable IPA requires an Apple Developer signing team/profile. Airbridge's multicast discovery also needs Apple's multicast entitlement on the App ID/profile. |
 
@@ -32,7 +32,7 @@ For Debian/Ubuntu, install the Linux desktop packages with:
 
 ```bash
 sudo apt-get update
-sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev patchelf desktop-file-utils curl
+sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev patchelf desktop-file-utils curl libfuse2
 ```
 
 For macOS/iOS, install Xcode from the App Store and Homebrew, then select Xcode and install CocoaPods:
@@ -159,7 +159,7 @@ On Debian/Ubuntu, for example:
 
 ```bash
 sudo apt-get update
-sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev patchelf desktop-file-utils curl
+sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev patchelf desktop-file-utils curl libfuse2
 cd airbridge_mobile
 flutter build linux --release
 ```
