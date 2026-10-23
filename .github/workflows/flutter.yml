@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   analyze-test-android:
-    name: Analyze, test, and build Android debug APK
+    name: Analyze, test, and build Android APK
     runs-on: ubuntu-latest
     timeout-minutes: 40
     defaults:
@@ -62,11 +62,18 @@ jobs:
       - name: Build Android release APK
         run: flutter build apk --release
 
-      - name: Upload release APK artifact
-        uses: actions/upload-artifact@v4
+      - name: Stage Android APK for workflow downloads
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/release-assets"
+          cp build/app/outputs/flutter-apk/app-release.apk "$RUNNER_TEMP/release-assets/Airbridge-Android.apk"
+
+      - name: Upload Android APK artifact
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
         with:
-          name: airbridge-android-release
-          path: airbridge_mobile/build/app/outputs/flutter-apk/app-release.apk
+          name: airbridge-ci-android
+          path: ${{ runner.temp }}/release-assets/Airbridge-Android.apk
           if-no-files-found: error
           retention-days: 7
 
@@ -155,3 +162,81 @@ jobs:
       - name: Build iOS (unsigned)
         if: matrix.target == 'ios'
         run: flutter build ios --release --no-codesign
+
+      - name: Archive unsigned iOS app for CI download
+        if: matrix.target == 'ios'
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -d build/ios/iphoneos/Runner.app
+          mkdir -p "$RUNNER_TEMP/release-assets"
+          tar -czf "$RUNNER_TEMP/release-assets/Airbridge-iOS-unsigned.app.tar.gz" \
+            -C build/ios/iphoneos Runner.app
+
+      - name: Upload unsigned iOS CI artifact
+        if: matrix.target == 'ios'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+        with:
+          name: airbridge-ci-ios-unsigned
+          path: ${{ runner.temp }}/release-assets/Airbridge-iOS-unsigned.app.tar.gz
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Upload Linux AppImage artifact
+        if: matrix.target == 'linux'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+        with:
+          name: airbridge-ci-linux
+          path: ${{ runner.temp }}/release-assets/Airbridge-Linux-x86_64.AppImage
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Upload Windows installer artifact
+        if: matrix.target == 'windows'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+        with:
+          name: airbridge-ci-windows
+          path: ${{ runner.temp }}/release-assets/Airbridge-Windows-Setup-*.exe
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Upload macOS disk image artifact
+        if: matrix.target == 'macos'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+        with:
+          name: airbridge-ci-macos
+          path: ${{ runner.temp }}/release-assets/Airbridge-macOS.dmg
+          if-no-files-found: error
+          retention-days: 7
+
+  bundle-platform-artifacts:
+    name: Bundle platform downloads
+    needs:
+      - analyze-test-android
+      - build-desktop-and-ios
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      - name: Download platform build artifacts
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8.0.2
+        with:
+          pattern: airbridge-ci-*
+          path: ${{ runner.temp }}/platform-assets
+          merge-multiple: true
+
+      - name: Package native downloads and checksums into one ZIP
+        run: >-
+          python3 airbridge_mobile/tool/package_platform_bundle.py
+          --assets-dir "${{ runner.temp }}/platform-assets"
+          --output "${{ runner.temp }}/Airbridge-All-Platforms.zip"
+
+      - name: Upload combined platform bundle
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+        with:
+          name: airbridge-all-platforms
+          path: ${{ runner.temp }}/Airbridge-All-Platforms.zip
+          if-no-files-found: error
+          retention-days: 7
