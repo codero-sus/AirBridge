@@ -24,9 +24,35 @@ class DashboardPage extends StatefulWidget {
   State<DashboardPage> createState() => _DashboardPageState();
 }
 
+enum _DashboardSection { overview, messages, peers, activity }
+
+extension _DashboardSectionDetails on _DashboardSection {
+  String get label => switch (this) {
+        _DashboardSection.overview => 'Overview',
+        _DashboardSection.messages => 'Messages',
+        _DashboardSection.peers => 'Mesh peers',
+        _DashboardSection.activity => 'Activity',
+      };
+
+  String get description => switch (this) {
+        _DashboardSection.overview => 'A quick view of your local mesh.',
+        _DashboardSection.messages => 'Send payloads and review message traffic.',
+        _DashboardSection.peers => 'Discover, pair, and monitor nearby devices.',
+        _DashboardSection.activity => 'Inspect recent node and network events.',
+      };
+
+  IconData get icon => switch (this) {
+        _DashboardSection.overview => Icons.grid_view_rounded,
+        _DashboardSection.messages => Icons.forum_outlined,
+        _DashboardSection.peers => Icons.hub_outlined,
+        _DashboardSection.activity => Icons.receipt_long_outlined,
+      };
+}
+
 class _DashboardPageState extends State<DashboardPage> {
   final TextEditingController _payloadController = TextEditingController();
   bool _sending = false;
+  _DashboardSection _section = _DashboardSection.overview;
 
   @override
   void dispose() {
@@ -59,70 +85,861 @@ class _DashboardPageState extends State<DashboardPage> {
     }
   }
 
-  @override
-  Widget build(BuildContext context) => AnimatedBuilder(
-        animation: widget.controller,
-        builder: (context, _) => Scaffold(
-          backgroundColor: _background,
-          body: SafeArea(
-            child: LayoutBuilder(
-              builder: (context, constraints) {
-                final wide = constraints.maxWidth >= 980;
-                return Padding(
-                  padding: EdgeInsets.symmetric(
-                    horizontal: wide ? 28 : 16,
-                    vertical: 16,
-                  ),
-                  child: Column(
-                    children: <Widget>[
-                      _NodeHeader(controller: widget.controller),
-                      const SizedBox(height: 18),
-                      Expanded(
-                        child: wide
-                            ? Row(
-                                crossAxisAlignment: CrossAxisAlignment.stretch,
-                                children: <Widget>[
-                                  Expanded(
-                                    child: _mainPanels(wide: true),
-                                  ),
-                                  const SizedBox(width: 18),
-                                  SizedBox(
-                                    width: 310,
-                                    child: SingleChildScrollView(
-                                      child: _PeerPanel(controller: widget.controller),
-                                    ),
-                                  ),
-                                ],
-                              )
-                            : _mainPanels(wide: false),
-                      ),
-                    ],
-                  ),
-                );
-              },
-            ),
-          ),
-        ),
-      );
+  Future<void> _openPairing({required bool closeDrawer}) async {
+    if (!widget.controller.isRunning) return;
+    if (closeDrawer) {
+      await Navigator.of(context).maybePop();
+      if (!mounted) return;
+    }
+    await showPairingDialog(context, widget.controller);
+  }
 
-  Widget _mainPanels({required bool wide}) => ListView(
-        padding: EdgeInsets.zero,
-        children: <Widget>[
-          _TerminalPanel(
+  void _selectSection(_DashboardSection section, {required bool closeDrawer}) {
+    setState(() => _section = section);
+    if (closeDrawer) Navigator.of(context).pop();
+  }
+
+  Widget _buildSection({required bool wide}) => switch (_section) {
+        _DashboardSection.overview => _OverviewSection(
+            controller: widget.controller,
+            onPair: () => unawaited(_openPairing(closeDrawer: false)),
+            onOpenMessages: () => _selectSection(_DashboardSection.messages,
+                closeDrawer: false),
+            onOpenPeers: () =>
+                _selectSection(_DashboardSection.peers, closeDrawer: false),
+          ),
+        _DashboardSection.messages => _MessagesSection(
             controller: widget.controller,
             textController: _payloadController,
             sending: _sending,
             onSend: _sendPayload,
+            wide: wide,
           ),
-          if (!wide) ...<Widget>[
-            const SizedBox(height: 14),
-            _PeerPanel(controller: widget.controller),
+        _DashboardSection.peers => _PeersSection(
+            controller: widget.controller,
+            onPair: () => unawaited(_openPairing(closeDrawer: false)),
+          ),
+        _DashboardSection.activity => _ActivitySection(
+            controller: widget.controller,
+          ),
+      };
+
+  @override
+  Widget build(BuildContext context) => AnimatedBuilder(
+        animation: widget.controller,
+        builder: (context, _) {
+          final wide = MediaQuery.sizeOf(context).width >= 1080;
+          return Scaffold(
+            backgroundColor: _background,
+            drawer: wide
+                ? null
+                : Drawer(
+                    width: 286,
+                    backgroundColor: const Color(0xFF0E1522),
+                    child: SafeArea(
+                      child: _Sidebar(
+                        controller: widget.controller,
+                        selectedSection: _section,
+                        onSelect: (section) => _selectSection(
+                          section,
+                          closeDrawer: true,
+                        ),
+                        onPair: () => unawaited(
+                          _openPairing(closeDrawer: true),
+                        ),
+                      ),
+                    ),
+                  ),
+            appBar: wide
+                ? null
+                : AppBar(
+                    backgroundColor: _background,
+                    foregroundColor: const Color(0xFFE8EDF5),
+                    elevation: 0,
+                    leading: Builder(
+                      builder: (drawerContext) => IconButton(
+                        tooltip: 'Open navigation',
+                        onPressed: () =>
+                            Scaffold.of(drawerContext).openDrawer(),
+                        icon: const Icon(Icons.menu_rounded),
+                      ),
+                    ),
+                    titleSpacing: 0,
+                    title: Row(
+                      children: <Widget>[
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(8),
+                          child: Image.asset(
+                            'assets/airbridge_logo.png',
+                            width: 31,
+                            height: 31,
+                            fit: BoxFit.cover,
+                            semanticLabel: 'Airbridge logo',
+                          ),
+                        ),
+                        const SizedBox(width: 9),
+                        const Text(
+                          'AIRBRIDGE',
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: 1.5,
+                          ),
+                        ),
+                      ],
+                    ),
+                    actions: <Widget>[
+                      IconButton(
+                        tooltip: 'Pair a device with QR',
+                        onPressed: widget.controller.isRunning
+                            ? () => unawaited(
+                                  _openPairing(closeDrawer: false),
+                                )
+                            : null,
+                        color: _mint,
+                        icon: const Icon(Icons.qr_code_2_rounded),
+                      ),
+                      const SizedBox(width: 6),
+                    ],
+                  ),
+            body: SafeArea(
+              top: wide,
+              child: Row(
+                children: <Widget>[
+                  if (wide)
+                    _Sidebar(
+                      width: 252,
+                      controller: widget.controller,
+                      selectedSection: _section,
+                      onSelect: (section) => _selectSection(
+                        section,
+                        closeDrawer: false,
+                      ),
+                      onPair: () => unawaited(
+                        _openPairing(closeDrawer: false),
+                      ),
+                    ),
+                  Expanded(
+                    child: Padding(
+                      padding: EdgeInsets.fromLTRB(
+                        wide ? 26 : 15,
+                        wide ? 18 : 10,
+                        wide ? 26 : 15,
+                        wide ? 22 : 15,
+                      ),
+                      child: Column(
+                        children: <Widget>[
+                          _NodeHeader(controller: widget.controller),
+                          const SizedBox(height: 16),
+                          Expanded(child: _buildSection(wide: wide)),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      );
+}
+
+class _Sidebar extends StatelessWidget {
+  const _Sidebar({
+    required this.controller,
+    required this.selectedSection,
+    required this.onSelect,
+    required this.onPair,
+    this.width,
+  });
+
+  final NodeController controller;
+  final _DashboardSection selectedSection;
+  final ValueChanged<_DashboardSection> onSelect;
+  final VoidCallback onPair;
+  final double? width;
+
+  @override
+  Widget build(BuildContext context) => Container(
+        width: width,
+        padding: const EdgeInsets.fromLTRB(14, 20, 14, 16),
+        decoration: const BoxDecoration(
+          color: Color(0xFF0E1522),
+          border: Border(right: BorderSide(color: _border)),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: <Widget>[
+            Padding(
+              padding: const EdgeInsets.fromLTRB(8, 0, 8, 24),
+              child: Row(
+                children: <Widget>[
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(11),
+                    child: Image.asset(
+                      'assets/airbridge_logo.png',
+                      width: 39,
+                      height: 39,
+                      fit: BoxFit.cover,
+                      semanticLabel: 'Airbridge logo',
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  const Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: <Widget>[
+                        Text(
+                          'AIRBRIDGE',
+                          style: TextStyle(
+                            color: Color(0xFFE9F0F7),
+                            fontSize: 14,
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: 1.45,
+                          ),
+                        ),
+                        SizedBox(height: 3),
+                        Text(
+                          'LOCAL MESH',
+                          style: TextStyle(
+                            color: _muted,
+                            fontSize: 9,
+                            fontWeight: FontWeight.w700,
+                            letterSpacing: 1.25,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const Padding(
+              padding: EdgeInsets.fromLTRB(10, 0, 10, 9),
+              child: Text(
+                'WORKSPACE',
+                style: TextStyle(
+                  color: Color(0xFF65738A),
+                  fontSize: 9,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: 1.35,
+                ),
+              ),
+            ),
+            for (final section in _DashboardSection.values)
+              _SidebarDestination(
+                section: section,
+                selected: section == selectedSection,
+                onTap: () => onSelect(section),
+              ),
+            const Spacer(),
+            FilledButton.icon(
+              onPressed: controller.isRunning ? onPair : null,
+              style: FilledButton.styleFrom(
+                backgroundColor: _mint,
+                foregroundColor: const Color(0xFF07120F),
+                minimumSize: const Size.fromHeight(46),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(13),
+                ),
+              ),
+              icon: const Icon(Icons.qr_code_2_rounded, size: 19),
+              label: const Text(
+                'Pair a device',
+                style: TextStyle(fontWeight: FontWeight.w800),
+              ),
+            ),
+            const SizedBox(height: 13),
+            _SidebarNodeStatus(controller: controller),
           ],
-          const SizedBox(height: 14),
-          _MessagePanel(controller: widget.controller),
-          const SizedBox(height: 14),
-          _LogPanel(controller: widget.controller),
+        ),
+      );
+}
+
+class _SidebarDestination extends StatelessWidget {
+  const _SidebarDestination({
+    required this.section,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final _DashboardSection section;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+        padding: const EdgeInsets.only(bottom: 5),
+        child: Semantics(
+          button: true,
+          selected: selected,
+          label: section.label,
+          child: Tooltip(
+            message: section.description,
+            child: Material(
+              color: Colors.transparent,
+              child: InkWell(
+                onTap: onTap,
+                borderRadius: BorderRadius.circular(12),
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 160),
+                  height: 46,
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  decoration: BoxDecoration(
+                    color: selected ? const Color(0x1F63E6BE) : Colors.transparent,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: selected
+                          ? const Color(0x4D63E6BE)
+                          : Colors.transparent,
+                    ),
+                  ),
+                  child: Row(
+                    children: <Widget>[
+                      Icon(
+                        section.icon,
+                        size: 18,
+                        color: selected ? _mint : const Color(0xFF8390A5),
+                      ),
+                      const SizedBox(width: 11),
+                      Expanded(
+                        child: Text(
+                          section.label,
+                          style: TextStyle(
+                            color: selected
+                                ? const Color(0xFFE7F7F1)
+                                : const Color(0xFFB7C1D0),
+                            fontSize: 12,
+                            fontWeight:
+                                selected ? FontWeight.w700 : FontWeight.w500,
+                          ),
+                        ),
+                      ),
+                      if (selected)
+                        Container(
+                          width: 6,
+                          height: 6,
+                          decoration: const BoxDecoration(
+                            color: _mint,
+                            shape: BoxShape.circle,
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+}
+
+class _SidebarNodeStatus extends StatelessWidget {
+  const _SidebarNodeStatus({required this.controller});
+
+  final NodeController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    final online = controller.isRunning;
+    final color = online ? _mint : const Color(0xFFFFC977);
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: const Color(0xFF111B2A),
+        border: Border.all(color: _border),
+        borderRadius: BorderRadius.circular(13),
+      ),
+      child: Row(
+        children: <Widget>[
+          Container(
+            width: 8,
+            height: 8,
+            decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+          ),
+          const SizedBox(width: 9),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                Text(
+                  online ? 'Node online' : 'Node ${controller.lifecycle}',
+                  style: const TextStyle(
+                    color: Color(0xFFE5EAF3),
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  '${controller.connectedPeerCount} linked  ·  ${controller.peers.length} discovered',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(color: _muted, fontSize: 9),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _PageHeading extends StatelessWidget {
+  const _PageHeading({
+    required this.icon,
+    required this.title,
+    required this.detail,
+    this.trailing,
+  });
+
+  final IconData icon;
+  final String title;
+  final String detail;
+  final Widget? trailing;
+
+  @override
+  Widget build(BuildContext context) => Row(
+        children: <Widget>[
+          Container(
+            width: 42,
+            height: 42,
+            decoration: BoxDecoration(
+              color: const Color(0x1F63E6BE),
+              borderRadius: BorderRadius.circular(13),
+            ),
+            child: Icon(icon, color: _mint, size: 21),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                Text(
+                  title,
+                  style: const TextStyle(
+                    color: Color(0xFFE8EDF5),
+                    fontSize: 21,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: -.35,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  detail,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(color: _muted, fontSize: 11),
+                ),
+              ],
+            ),
+          ),
+          if (trailing != null) ...<Widget>[
+            const SizedBox(width: 8),
+            trailing!,
+          ],
+        ],
+      );
+}
+
+class _MetricCard extends StatelessWidget {
+  const _MetricCard({
+    required this.icon,
+    required this.label,
+    required this.value,
+    required this.detail,
+    required this.accent,
+  });
+
+  final IconData icon;
+  final String label;
+  final String value;
+  final String detail;
+  final Color accent;
+
+  @override
+  Widget build(BuildContext context) => _GlassPanel(
+        padding: const EdgeInsets.all(14),
+        child: Row(
+          children: <Widget>[
+            Container(
+              width: 38,
+              height: 38,
+              decoration: BoxDecoration(
+                color: Color.fromARGB(31, accent.red, accent.green, accent.blue),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Icon(icon, color: accent, size: 19),
+            ),
+            const SizedBox(width: 11),
+            Expanded(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  Text(
+                    label.toUpperCase(),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: _muted,
+                      fontSize: 8,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: .8,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    value,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: Color(0xFFE8EDF5),
+                      fontSize: 17,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    detail,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(color: _muted, fontSize: 9),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      );
+}
+
+class _OverviewSection extends StatelessWidget {
+  const _OverviewSection({
+    required this.controller,
+    required this.onPair,
+    required this.onOpenMessages,
+    required this.onOpenPeers,
+  });
+
+  final NodeController controller;
+  final VoidCallback onPair;
+  final VoidCallback onOpenMessages;
+  final VoidCallback onOpenPeers;
+
+  @override
+  Widget build(BuildContext context) {
+    final wide = MediaQuery.sizeOf(context).width >= 820;
+    final latestMessages = controller.messages.reversed.take(3).toList();
+    final metrics = <Widget>[
+      _MetricCard(
+        icon: controller.isRunning ? Icons.wifi_tethering_rounded : Icons.power_settings_new_rounded,
+        label: 'Node status',
+        value: controller.lifecycle.toUpperCase(),
+        detail: '${controller.localAddress}:${controller.config.httpPort}',
+        accent: controller.isRunning ? _mint : const Color(0xFFFFC977),
+      ),
+      _MetricCard(
+        icon: Icons.hub_outlined,
+        label: 'Mesh peers',
+        value: '${controller.peers.length}',
+        detail: '${controller.connectedPeerCount} linked now',
+        accent: const Color(0xFF8CA8FF),
+      ),
+      _MetricCard(
+        icon: Icons.swap_horiz_rounded,
+        label: 'Messages',
+        value: '${controller.messages.length}',
+        detail: 'retained on this device',
+        accent: const Color(0xFFFFC977),
+      ),
+      _MetricCard(
+        icon: Icons.verified_user_outlined,
+        label: 'Trusted devices',
+        value: '${controller.trustedPeers.length}',
+        detail: controller.hasSharedSecret ? 'encrypted mesh enabled' : 'paired individually',
+        accent: const Color(0xFFC5A5FF),
+      ),
+    ];
+
+    return ListView(
+      padding: const EdgeInsets.only(bottom: 8),
+      children: <Widget>[
+        _PageHeading(
+          icon: Icons.grid_view_rounded,
+          title: 'Overview',
+          detail: 'Your local mesh at a glance. Choose a section from the sidebar to get started.',
+        ),
+        const SizedBox(height: 17),
+        LayoutBuilder(
+          builder: (context, constraints) {
+            final columns = constraints.maxWidth >= 960
+                ? 4
+                : constraints.maxWidth >= 680
+                    ? 3
+                    : 2;
+            final aspectRatio = switch (columns) {
+              4 => 2.1,
+              3 => 1.85,
+              _ => 1.55,
+            };
+            return GridView.count(
+              crossAxisCount: columns,
+              crossAxisSpacing: 11,
+              mainAxisSpacing: 11,
+              childAspectRatio: aspectRatio,
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              children: metrics,
+            );
+          },
+        ),
+        const SizedBox(height: 15),
+        if (wide)
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              Expanded(
+                child: _QuickStartPanel(
+                  canPair: controller.isRunning,
+                  onPair: onPair,
+                  onOpenPeers: onOpenPeers,
+                ),
+              ),
+              const SizedBox(width: 13),
+              Expanded(
+                child: _RecentMessagesPanel(
+                  messages: latestMessages,
+                  totalMessages: controller.messages.length,
+                  onOpenMessages: onOpenMessages,
+                ),
+              ),
+            ],
+          )
+        else ...<Widget>[
+          _QuickStartPanel(
+            canPair: controller.isRunning,
+            onPair: onPair,
+            onOpenPeers: onOpenPeers,
+          ),
+          const SizedBox(height: 13),
+          _RecentMessagesPanel(
+            messages: latestMessages,
+            totalMessages: controller.messages.length,
+            onOpenMessages: onOpenMessages,
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+class _QuickStartPanel extends StatelessWidget {
+  const _QuickStartPanel({
+    required this.canPair,
+    required this.onPair,
+    required this.onOpenPeers,
+  });
+
+  final bool canPair;
+  final VoidCallback onPair;
+  final VoidCallback onOpenPeers;
+
+  @override
+  Widget build(BuildContext context) => _GlassPanel(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            const _PanelHeading(
+              icon: Icons.bolt_rounded,
+              title: 'Get connected',
+              detail: 'Bring another device onto this mesh.',
+            ),
+            const SizedBox(height: 13),
+            const Text(
+              'Pair with a one-time QR invitation. Nearby devices are discovered automatically on your local network.',
+              style: TextStyle(color: Color(0xFFB3BED0), fontSize: 11, height: 1.5),
+            ),
+            const SizedBox(height: 13),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: <Widget>[
+                FilledButton.icon(
+                  onPressed: canPair ? onPair : null,
+                  style: FilledButton.styleFrom(
+                    backgroundColor: _mint,
+                    foregroundColor: const Color(0xFF07120F),
+                  ),
+                  icon: const Icon(Icons.qr_code_2_rounded, size: 17),
+                  label: const Text('Pair a device'),
+                ),
+                OutlinedButton.icon(
+                  onPressed: onOpenPeers,
+                  icon: const Icon(Icons.hub_outlined, size: 17),
+                  label: const Text('Browse peers'),
+                ),
+              ],
+            ),
+          ],
+        ),
+      );
+}
+
+class _RecentMessagesPanel extends StatelessWidget {
+  const _RecentMessagesPanel({
+    required this.messages,
+    required this.totalMessages,
+    required this.onOpenMessages,
+  });
+
+  final List<NodeMessage> messages;
+  final int totalMessages;
+  final VoidCallback onOpenMessages;
+
+  @override
+  Widget build(BuildContext context) => _GlassPanel(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            _PanelHeading(
+              icon: Icons.forum_outlined,
+              title: 'Recent traffic',
+              detail: '$totalMessages messages on this device',
+              trailing: TextButton(
+                onPressed: onOpenMessages,
+                child: const Text('View all'),
+              ),
+            ),
+            const SizedBox(height: 10),
+            if (messages.isEmpty)
+              const _EmptyState(
+                icon: Icons.mark_chat_unread_outlined,
+                title: 'No messages yet',
+                detail: 'Broadcast a payload or wait for a peer.',
+              )
+            else
+              ...messages.map(
+                (message) => Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: _MessageTile(message: message),
+                ),
+              ),
+          ],
+        ),
+      );
+}
+
+class _MessagesSection extends StatelessWidget {
+  const _MessagesSection({
+    required this.controller,
+    required this.textController,
+    required this.sending,
+    required this.onSend,
+    required this.wide,
+  });
+
+  final NodeController controller;
+  final TextEditingController textController;
+  final bool sending;
+  final VoidCallback onSend;
+  final bool wide;
+
+  @override
+  Widget build(BuildContext context) {
+    final messageHeight = (MediaQuery.sizeOf(context).height - 300)
+        .clamp(330.0, 620.0)
+        .toDouble();
+    final terminal = _TerminalPanel(
+      controller: controller,
+      textController: textController,
+      sending: sending,
+      onSend: onSend,
+    );
+    return Column(
+      children: <Widget>[
+        const _PageHeading(
+          icon: Icons.forum_outlined,
+          title: 'Messages',
+          detail: 'Broadcast payloads and search the message history.',
+        ),
+        const SizedBox(height: 15),
+        Expanded(
+          child: wide
+              ? Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    SizedBox(
+                      width: 360,
+                      child: SingleChildScrollView(child: terminal),
+                    ),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: SingleChildScrollView(
+                        child: _MessagePanel(
+                          controller: controller,
+                          height: messageHeight,
+                        ),
+                      ),
+                    ),
+                  ],
+                )
+              : ListView(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  children: <Widget>[
+                    terminal,
+                    const SizedBox(height: 13),
+                    _MessagePanel(controller: controller),
+                  ],
+                ),
+        ),
+      ],
+    );
+  }
+}
+
+class _PeersSection extends StatelessWidget {
+  const _PeersSection({required this.controller, required this.onPair});
+
+  final NodeController controller;
+  final VoidCallback onPair;
+
+  @override
+  Widget build(BuildContext context) => ListView(
+        padding: const EdgeInsets.only(bottom: 8),
+        children: <Widget>[
+          _PageHeading(
+            icon: Icons.hub_outlined,
+            title: 'Mesh peers',
+            detail: 'Devices discovered on this subnet. Pairing establishes trust.',
+            trailing: FilledButton.tonalIcon(
+              onPressed: controller.isRunning ? onPair : null,
+              icon: const Icon(Icons.qr_code_2_rounded, size: 17),
+              label: const Text('Pair'),
+            ),
+          ),
           const SizedBox(height: 16),
+          _PeerPanel(controller: controller),
+        ],
+      );
+}
+
+class _ActivitySection extends StatelessWidget {
+  const _ActivitySection({required this.controller});
+
+  final NodeController controller;
+
+  @override
+  Widget build(BuildContext context) => Column(
+        children: <Widget>[
+          const _PageHeading(
+            icon: Icons.receipt_long_outlined,
+            title: 'Activity',
+            detail: 'Recent startup, discovery, pairing, and delivery events.',
+          ),
+          const SizedBox(height: 15),
+          Expanded(child: _LogPanel(controller: controller)),
         ],
       );
 }
@@ -136,58 +953,67 @@ class _NodeHeader extends StatelessWidget {
   Widget build(BuildContext context) {
     final isMaster = controller.role == 'master';
     return _GlassPanel(
-      padding: const EdgeInsets.all(18),
+      padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 12),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
           Row(
             children: <Widget>[
-              ClipRRect(
-                borderRadius: BorderRadius.circular(15),
-                child: Image.asset(
-                  'assets/airbridge_logo.png',
-                  width: 46,
-                  height: 46,
-                  fit: BoxFit.cover,
-                  semanticLabel: 'Airbridge logo',
+              Container(
+                width: 37,
+                height: 37,
+                decoration: BoxDecoration(
+                  color: controller.isRunning
+                      ? const Color(0x1F63E6BE)
+                      : const Color(0x1FFFC977),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(
+                  Icons.router_rounded,
+                  color: controller.isRunning ? _mint : const Color(0xFFFFC977),
+                  size: 19,
                 ),
               ),
-              const SizedBox(width: 13),
+              const SizedBox(width: 10),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: <Widget>[
                     const Text(
-                      'AIRBRIDGE',
+                      'Node status',
                       style: TextStyle(
-                        fontSize: 18,
+                        color: Color(0xFFE8EDF5),
+                        fontSize: 13,
                         fontWeight: FontWeight.w800,
-                        letterSpacing: 2.1,
                       ),
                     ),
-                    const SizedBox(height: 2),
+                    const SizedBox(height: 3),
                     Text(
-                      'Local mesh node  •  ${controller.lifecycle.toUpperCase()}',
-                      style: const TextStyle(color: _muted, fontSize: 12),
+                      '${controller.localAddress}  ·  ${controller.lifecycle.toUpperCase()}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(color: _muted, fontSize: 10),
                     ),
                   ],
                 ),
               ),
+              _RoleBadge(isMaster: isMaster),
+              const SizedBox(width: 4),
               IconButton(
                 tooltip: 'Pair a device with QR',
                 onPressed: controller.isRunning
                     ? () => showPairingDialog(context, controller)
                     : null,
                 color: _mint,
+                visualDensity: VisualDensity.compact,
                 icon: const Icon(Icons.qr_code_2_rounded),
               ),
-              _RoleBadge(isMaster: isMaster),
             ],
           ),
-          const SizedBox(height: 15),
+          const SizedBox(height: 11),
           Wrap(
-            spacing: 8,
-            runSpacing: 8,
+            spacing: 7,
+            runSpacing: 7,
             children: <Widget>[
               Tooltip(
                 message: controller.config.deviceId,
@@ -207,7 +1033,7 @@ class _NodeHeader extends StatelessWidget {
               ),
               _InfoChip(
                 icon: Icons.devices_rounded,
-                label: '${controller.peers.length} discovered  •  '
+                label: '${controller.peers.length} discovered  ·  '
                     '${controller.connectedPeerCount} linked',
               ),
             ],
@@ -535,9 +1361,10 @@ class _PeerTile extends StatelessWidget {
 }
 
 class _MessagePanel extends StatefulWidget {
-  const _MessagePanel({required this.controller});
+  const _MessagePanel({required this.controller, this.height = 330});
 
   final NodeController controller;
+  final double height;
 
   @override
   State<_MessagePanel> createState() => _MessagePanelState();
@@ -583,7 +1410,7 @@ class _MessagePanelState extends State<_MessagePanel> {
         : '${messages.length} matches • ${allMessages.length} retained';
 
     return SizedBox(
-      height: 330,
+      height: widget.height,
       child: _GlassPanel(
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -728,38 +1555,41 @@ class _LogPanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final logs = controller.logs;
-    return SizedBox(
-      height: 240,
-      child: _GlassPanel(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: <Widget>[
-            _PanelHeading(
-              icon: Icons.receipt_long_rounded,
-              title: 'System log',
-              detail: '${logs.length} recent events',
-              trailing: IconButton(
-                tooltip: 'Copy recent system log as JSON',
-                visualDensity: VisualDensity.compact,
-                onPressed: logs.isEmpty
-                    ? null
-                    : () => unawaited(_copyLogs(context, logs)),
-                icon: const Icon(Icons.content_copy_rounded, size: 17),
-              ),
+    return _GlassPanel(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          _PanelHeading(
+            icon: Icons.receipt_long_rounded,
+            title: 'System log',
+            detail: '${logs.length} recent events',
+            trailing: IconButton(
+              tooltip: 'Copy recent system log as JSON',
+              visualDensity: VisualDensity.compact,
+              onPressed: logs.isEmpty
+                  ? null
+                  : () => unawaited(_copyLogs(context, logs)),
+              icon: const Icon(Icons.content_copy_rounded, size: 17),
             ),
-            const SizedBox(height: 8),
-            Expanded(
-              child: ListView.builder(
-                reverse: true,
-                itemCount: logs.length,
-                itemBuilder: (context, index) {
-                  final entry = logs[logs.length - index - 1];
-                  return _LogLine(entry: entry);
-                },
-              ),
-            ),
-          ],
-        ),
+          ),
+          const SizedBox(height: 8),
+          Expanded(
+            child: logs.isEmpty
+                ? const _EmptyState(
+                    icon: Icons.receipt_long_outlined,
+                    title: 'No activity yet',
+                    detail: 'Node events will appear here as the mesh starts.',
+                  )
+                : ListView.builder(
+                    reverse: true,
+                    itemCount: logs.length,
+                    itemBuilder: (context, index) {
+                      final entry = logs[logs.length - index - 1];
+                      return _LogLine(entry: entry);
+                    },
+                  ),
+          ),
+        ],
       ),
     );
   }

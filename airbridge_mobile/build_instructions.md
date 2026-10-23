@@ -208,7 +208,7 @@ Open `ios/Runner.xcworkspace` in Xcode to select the signing team and install on
 
 ## 9. Versioned GitHub releases
 
-Releases are published automatically only after a matching `vMAJOR.MINOR.PATCH` tag is pushed for a commit already merged into `main`. The workflow publishes a directly installable Android APK, Windows setup `.exe` (including the complete Flutter runtime bundle), Linux x86_64 AppImage, macOS DMG, SHA-256 checksums, and signed GitHub provenance attestations—never ZIP release assets. iOS requires Apple signing/profile setup and is not included as an installable public release. See [`docs/releasing.md`](../docs/releasing.md) for the exact tag command, package build commands, installation notes, and checksum/attestation verification.
+Releases are published automatically only after a matching `vMAJOR.MINOR.PATCH` tag is pushed for a commit already merged into `main`. The GitHub Release contains a directly installable Android APK, Windows setup `.exe` (including the complete Flutter runtime bundle), Linux x86_64 AppImage, macOS DMG, SHA-256 checksums, and signed GitHub provenance attestations—no ZIP Release assets. CI and versioned release workflow runs also provide `Airbridge-All-Platforms.zip` as a seven-day GitHub Actions artifact containing the four native packages and checksums; pull-request CI also bundles an explicitly unsigned iOS `.app` archive for developer inspection. iOS requires Apple signing/profile setup and is never included as an installable public release. See [`docs/releasing.md`](../docs/releasing.md) for the exact tag command, package build commands, installation notes, and checksum/attestation verification.
 
 ## 10. API smoke test
 

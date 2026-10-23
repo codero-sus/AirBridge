@@ -1,6 +1,6 @@
 # Airbridge versioned releases
 
-Airbridge publishes installable release assets directly to the GitHub **Releases** page. The release workflow deliberately does **not** upload ZIP files or a standalone Flutter runner executable that is missing its runtime files.
+Airbridge publishes installable release assets directly to the GitHub **Releases** page. Those release assets stay as separate native installers/packages; no ZIP is attached to a GitHub Release. For convenience, the pull-request CI run and versioned release workflow also expose an `Airbridge-All-Platforms.zip` as a seven-day **Actions artifact**, not a Release asset. The CI artifact is named `airbridge-all-platforms` and includes the four native downloads, an explicitly unsigned iOS `.app` archive, and `SHA256SUMS.txt`; the versioned release run provides `airbridge-release-all-platforms`, containing the four native downloads and checksums only. The unsigned iOS build is for CI/developer inspection, not direct installation.
 
 ## Release assets
 
@@ -22,7 +22,7 @@ The assets are not currently signed with platform-native release certificates. W
 2. The tagged commit is already reachable from `main`—an unmerged branch cannot be released.
 3. Every expected asset is present and non-empty, no ZIP exists, and the generated SHA-256 manifest passes verification.
 
-All four platform builds must pass before GitHub creates the release. The release includes generated change notes, the four native download formats, checksums, and signed provenance attestations. The pull-request workflow also smoke-tests Windows installer, Linux AppImage, and macOS DMG packaging after the normal desktop builds; it never publishes release assets.
+All four installable platform builds must pass before GitHub creates the release. The release includes generated change notes, the four separate native download formats, checksums, and signed provenance attestations. The release workflow also creates a convenience ZIP for download from the Actions run (not from the Releases page). Pull-request CI uploads each Android/desktop package separately and provides the combined ZIP with the unsigned iOS `.app` archive clearly labeled for developer inspection; the versioned release ZIP omits iOS.
 
 ### Cutting a release
 
