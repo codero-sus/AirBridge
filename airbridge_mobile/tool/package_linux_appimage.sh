@@ -76,6 +76,7 @@ EOF
 LINUXDEPLOY_LOG="$TEMP_ROOT/linuxdeploy.log"
 set +e
 (
+  trap - ERR
   cd "$WORK_DIR"
   APPIMAGE_EXTRACT_AND_RUN=1 "$LINUXDEPLOY" \
     --appdir "$APPDIR" \
@@ -92,7 +93,7 @@ if [[ "$LINUXDEPLOY_STATUS" -ne 0 ]]; then
   diagnostics="${diagnostics//'%'/'%25'}"
   diagnostics="${diagnostics//$'\r'/'%0D'}"
   diagnostics="${diagnostics//$'\n'/'%0A'}"
-  printf '::error::linuxdeploy exited %s: %s\n' "$LINUXDEPLOY_STATUS" "$diagnostics" >&2
+  printf '::error::linuxdeploy exited %s: %s\n' "$LINUXDEPLOY_STATUS" "$diagnostics"
   exit "$LINUXDEPLOY_STATUS"
 fi
 
