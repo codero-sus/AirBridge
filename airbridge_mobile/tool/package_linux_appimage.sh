@@ -57,7 +57,16 @@ APPIMAGE_EXTRACT_AND_RUN=1 "$LINUXDEPLOY" --list-plugins
 # Flutter locates its engine and data relative to the executable, so preserve
 # the entire release bundle together under usr/bin (never ship only the runner).
 cp -a "$BUNDLE/." "$APPDIR/usr/bin/"
-cp "$LOGO" "$APPDIR/airbridge.png"
+if command -v magick >/dev/null 2>&1; then
+  magick "$LOGO" -resize 512x512 "$APPDIR/airbridge.png"
+else
+  convert "$LOGO" -resize 512x512 "$APPDIR/airbridge.png"
+fi
+ICON_DIMENSIONS="$(identify -format '%wx%h' "$APPDIR/airbridge.png")"
+if [[ "$ICON_DIMENSIONS" != "512x512" ]]; then
+  echo "AppImage icon must be 512x512; got $ICON_DIMENSIONS." >&2
+  exit 1
+fi
 ln -s usr/bin/airbridge_mobile "$APPDIR/airbridge_mobile"
 cat > "$APPDIR/airbridge.desktop" <<'EOF'
 [Desktop Entry]
