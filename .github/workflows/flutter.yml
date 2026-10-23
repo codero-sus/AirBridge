@@ -103,7 +103,7 @@ jobs:
         if: matrix.target == 'linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev
+          sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev patchelf desktop-file-utils curl
 
       - name: Bootstrap platform projects (Windows)
         if: runner.os == 'Windows'
@@ -119,13 +119,38 @@ jobs:
         if: matrix.target == 'linux'
         run: flutter build linux --release
 
+      - name: Smoke-test Linux AppImage packaging
+        if: matrix.target == 'linux'
+        run: ./tool/package_linux_appimage.sh "$RUNNER_TEMP/release-assets"
+
       - name: Build Windows desktop
         if: matrix.target == 'windows'
         run: flutter build windows --release
 
+      - name: Install Inno Setup for installer packaging validation
+        if: matrix.target == 'windows'
+        shell: pwsh
+        run: choco install innosetup --yes --no-progress
+
+      - name: Smoke-test full Windows installer packaging
+        if: matrix.target == 'windows'
+        shell: pwsh
+        run: |
+          $versionLine = Get-Content pubspec.yaml | Where-Object { $_ -match '^version:' } | Select-Object -First 1
+          $versionMatch = [regex]::Match($versionLine, '^version:\s*(\d+\.\d+\.\d+)')
+          if (-not $versionMatch.Success) {
+              throw 'Could not read X.Y.Z from pubspec.yaml version.'
+          }
+          $appVersion = $versionMatch.Groups[1].Value
+          .\tool\package_windows_installer.ps1 -AppVersion $appVersion -OutputDirectory (Join-Path $env:RUNNER_TEMP 'release-assets')
+
       - name: Build macOS desktop
         if: matrix.target == 'macos'
         run: flutter build macos --release
+
+      - name: Smoke-test macOS DMG packaging
+        if: matrix.target == 'macos'
+        run: ./tool/package_macos_dmg.sh "$RUNNER_TEMP/release-assets"
 
       - name: Build iOS (unsigned)
         if: matrix.target == 'ios'

@@ -1,0 +1,295 @@
+name: Publish GitHub Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: airbridge-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    name: Validate release tag
+    runs-on: ubuntu-latest
+    outputs:
+      app-version: ${{ steps.version.outputs.value }}
+    steps:
+      - name: Check out tagged source and history
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
+        with:
+          fetch-depth: 0
+
+      - name: Require a matching stable version on main
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="$GITHUB_REF_NAME"
+          if [[ ! "$tag" =~ ^v([0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
+            echo "Release tags must use vMAJOR.MINOR.PATCH (got: $tag)." >&2
+            exit 1
+          fi
+          tag_version="${BASH_REMATCH[1]}"
+          package_version="$(awk '$1 == "version:" { split($2, parts, "+"); print parts[1]; exit }' airbridge_mobile/pubspec.yaml)"
+          if [[ -z "$package_version" || "$tag_version" != "$package_version" ]]; then
+            echo "Tag $tag does not match airbridge_mobile/pubspec.yaml version $package_version." >&2
+            exit 1
+          fi
+
+          git fetch --no-tags origin main
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" FETCH_HEAD; then
+            echo "Refusing to release: the tagged commit is not reachable from main." >&2
+            exit 1
+          fi
+          echo "value=$package_version" >> "$GITHUB_OUTPUT"
+
+  build-android:
+    name: Build Android APK
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: airbridge_mobile
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
+
+      - name: Set up Flutter stable
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2  # v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Bootstrap platform projects and resolve dependencies
+        run: bash ./tool/bootstrap_platforms.sh
+
+      - name: Build release APK
+        run: flutter build apk --release
+
+      - name: Stage Android release asset
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/release-assets"
+          cp build/app/outputs/flutter-apk/app-release.apk "$RUNNER_TEMP/release-assets/Airbridge-Android.apk"
+
+      - name: Upload Android release asset
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        with:
+          name: airbridge-release-android
+          path: ${{ runner.temp }}/release-assets/Airbridge-Android.apk
+          if-no-files-found: error
+          retention-days: 1
+
+  build-linux:
+    name: Build Linux AppImage
+    needs: validate
+    runs-on: ubuntu-22.04
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: airbridge_mobile
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
+
+      - name: Install Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev patchelf desktop-file-utils curl
+
+      - name: Set up Flutter stable
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2  # v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Bootstrap platform projects and resolve dependencies
+        run: bash ./tool/bootstrap_platforms.sh
+
+      - name: Build Linux release bundle
+        run: flutter build linux --release
+
+      - name: Package a self-contained Linux AppImage
+        run: ./tool/package_linux_appimage.sh "$RUNNER_TEMP/release-assets"
+
+      - name: Upload Linux release asset
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        with:
+          name: airbridge-release-linux
+          path: ${{ runner.temp }}/release-assets/Airbridge-Linux-x86_64.AppImage
+          if-no-files-found: error
+          retention-days: 1
+
+  build-windows:
+    name: Build Windows installer
+    needs: validate
+    runs-on: windows-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: airbridge_mobile
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
+
+      - name: Set up Flutter stable
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2  # v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Bootstrap platform projects and resolve dependencies
+        shell: pwsh
+        run: .\tool\bootstrap_platforms.ps1
+
+      - name: Build Windows release bundle
+        run: flutter build windows --release
+
+      - name: Install Inno Setup 6
+        shell: pwsh
+        run: choco install innosetup --yes --no-progress
+
+      - name: Package the full Windows bundle as an installer executable
+        shell: pwsh
+        env:
+          APP_VERSION: ${{ needs.validate.outputs.app-version }}
+        run: .\tool\package_windows_installer.ps1 -AppVersion $env:APP_VERSION -OutputDirectory "$env:RUNNER_TEMP\release-assets"
+
+      - name: Upload Windows release asset
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        with:
+          name: airbridge-release-windows
+          path: ${{ runner.temp }}/release-assets/Airbridge-Windows-Setup-${{ needs.validate.outputs.app-version }}.exe
+          if-no-files-found: error
+          retention-days: 1
+
+  build-macos:
+    name: Build macOS disk image
+    needs: validate
+    runs-on: macos-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: airbridge_mobile
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
+
+      - name: Set up Flutter stable
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2  # v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Bootstrap platform projects and resolve dependencies
+        run: bash ./tool/bootstrap_platforms.sh
+
+      - name: Build macOS release app
+        run: flutter build macos --release
+
+      - name: Package the app as a DMG
+        run: ./tool/package_macos_dmg.sh "$RUNNER_TEMP/release-assets"
+
+      - name: Upload macOS release asset
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        with:
+          name: airbridge-release-macos
+          path: ${{ runner.temp }}/release-assets/Airbridge-macOS.dmg
+          if-no-files-found: error
+          retention-days: 1
+
+  publish:
+    name: Verify, attest, and publish release
+    needs:
+      - validate
+      - build-android
+      - build-linux
+      - build-windows
+      - build-macos
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      attestations: write
+      id-token: write
+    steps:
+      - name: Download platform release assets
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
+        with:
+          pattern: airbridge-release-*
+          path: release-assets
+          merge-multiple: true
+
+      - name: Validate assets and verify their SHA-256 checksums
+        shell: bash
+        env:
+          APP_VERSION: ${{ needs.validate.outputs.app-version }}
+        run: |
+          set -euo pipefail
+          expected=(
+            "Airbridge-Android.apk"
+            "Airbridge-Windows-Setup-${APP_VERSION}.exe"
+            "Airbridge-Linux-x86_64.AppImage"
+            "Airbridge-macOS.dmg"
+          )
+          for asset in "${expected[@]}"; do
+            if [[ ! -s "release-assets/$asset" ]]; then
+              echo "Missing or empty release asset: $asset" >&2
+              exit 1
+            fi
+          done
+          actual_count="$(find release-assets -maxdepth 1 -type f | wc -l)"
+          if [[ "$actual_count" -ne "${#expected[@]}" ]]; then
+            echo "Unexpected release file set: expected ${#expected[@]} platform assets, found $actual_count." >&2
+            find release-assets -maxdepth 2 -type f -print >&2
+            exit 1
+          fi
+          if find release-assets -type f -iname '*.zip' -print -quit | grep -q .; then
+            echo "ZIP files are not allowed as release assets." >&2
+            exit 1
+          fi
+          (
+            cd release-assets
+            sha256sum "${expected[@]}" > SHA256SUMS.txt
+            sha256sum --check SHA256SUMS.txt
+          )
+          ls -lh release-assets
+
+      - name: Create signed GitHub build-provenance attestations
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6  # v4.2.2
+        with:
+          subject-path: release-assets/*
+
+      - name: Publish versioned release with generated notes
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          APP_VERSION: ${{ needs.validate.outputs.app-version }}
+        run: |
+          set -euo pipefail
+          cat > release-notes-prefix.md <<EOF
+          ## Downloads
+
+          - **Android:** \`Airbridge-Android.apk\`
+          - **Windows:** \`Airbridge-Windows-Setup-${APP_VERSION}.exe\` (installer; includes the full Flutter runtime bundle)
+          - **Linux x86_64:** \`Airbridge-Linux-x86_64.AppImage\`
+          - **macOS:** \`Airbridge-macOS.dmg\` (drag Airbridge.app to Applications)
+          - **Checksums:** \`SHA256SUMS.txt\`
+
+          Verify the downloaded files from the directory containing the assets with \`sha256sum --check SHA256SUMS.txt\`. GitHub build-provenance attestations are also attached; verify an asset with \`gh attestation verify Airbridge-Android.apk --repo codero-sus/AirBridge\` using a recent GitHub CLI (repeat with the exact filename of each asset).
+
+          These packages are not platform-code-signed or notarized. Windows may show SmartScreen, and macOS may require Control-click → Open. The Android APK is for direct sideloading, not a Play Store upload. iOS distribution is omitted because it requires an Apple signing team, profile, and multicast entitlement.
+          EOF
+          gh release create "$GITHUB_REF_NAME" release-assets/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "Airbridge $GITHUB_REF_NAME" \
+            --verify-tag \
+            --generate-notes \
+            --notes-file release-notes-prefix.md

@@ -23,16 +23,16 @@ flutter doctor -v
 | Artifact | Build host | Additional tools needed |
 | --- | --- | --- |
 | Android `.apk` | Windows, macOS, or Linux | Android Studio (recommended) with Android SDK Command-line Tools, Platform-Tools (`adb`), and Android Build Tools; a JDK supported by Flutter. Accept licenses with `flutter doctor --android-licenses`. `adb` is only needed to install/test on a device, not to compile the APK. |
-| Windows `.exe` | Windows | Visual Studio 2022 with **Desktop development with C++**, MSVC C++ build tools, and a Windows 10/11 SDK. Flutter creates a release folder; ship the whole folder, not just the `.exe`. |
-| Linux desktop bundle | Linux | `clang`, `cmake`, `ninja-build`, `pkg-config`, GTK 3 development headers, and a C++ standard library toolchain. |
-| macOS `.app` | macOS | Xcode and CocoaPods. Xcode command-line tools must be selected and its license accepted. |
+| Windows installer `.exe` | Windows | Visual Studio 2022 with **Desktop development with C++**, MSVC C++ build tools, and a Windows 10/11 SDK. Install Inno Setup 6 to package the complete Flutter release folder into one installer executable. |
+| Linux `.AppImage` | Linux x86_64 | `clang`, `cmake`, `ninja-build`, `pkg-config`, GTK 3 development headers, `patchelf`, `desktop-file-utils`, `curl`, and a C++ standard library toolchain. The release packager downloads a pinned linuxdeploy AppImage and verifies its SHA-256 digest. |
+| macOS `.dmg` | macOS | Xcode and CocoaPods. Xcode command-line tools must be selected and its license accepted. The current public DMG is unsigned and not notarized. |
 | iOS 15.5+ app / `.ipa` | macOS only | Xcode and CocoaPods. Airbridge's camera-scanning dependency requires iOS 15.5 or newer; bootstrap applies that deployment target. An unsigned build needs no signing identity; device installation or a distributable IPA requires an Apple Developer signing team/profile. Airbridge's multicast discovery also needs Apple's multicast entitlement on the App ID/profile. |
 
 For Debian/Ubuntu, install the Linux desktop packages with:
 
 ```bash
 sudo apt-get update
-sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev
+sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev patchelf desktop-file-utils curl
 ```
 
 For macOS/iOS, install Xcode from the App Store and Homebrew, then select Xcode and install CocoaPods:
@@ -144,7 +144,14 @@ cd airbridge_mobile
 flutter build windows --release
 ```
 
-The executable and required runtime files are under `build\windows\x64\runner\Release\`. Windows Defender Firewall may prompt for permission to accept inbound connections; allow Airbridge on the trusted private LAN profile.
+The runner executable and its required runtime files are under `build\windows\x64\runner\Release\`; the `.exe` alone is not a usable portable download. To create a single installer executable, install Inno Setup 6 and run the packaging script with the app's `X.Y.Z` version:
+
+```powershell
+choco install innosetup --yes --no-progress
+.\tool\package_windows_installer.ps1 -AppVersion 4.0.0 -OutputDirectory .\build\release
+```
+
+Replace `4.0.0` with the version in `pubspec.yaml`. The installer is `build\release\Airbridge-Windows-Setup-4.0.0.exe` and contains the entire Flutter `Release` folder. Windows Defender Firewall may prompt for permission to accept inbound connections; allow Airbridge on the trusted private LAN profile.
 
 ## 6. Linux
 
@@ -152,12 +159,18 @@ On Debian/Ubuntu, for example:
 
 ```bash
 sudo apt-get update
-sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev
+sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev patchelf desktop-file-utils curl
 cd airbridge_mobile
 flutter build linux --release
 ```
 
-The bundle is under `build/linux/x64/release/bundle/`. Allow the configured TCP/UDP ports in the host firewall.
+The full Flutter bundle is under `build/linux/x64/release/bundle/`. To package a directly launchable x86_64 AppImage (no ZIP), run:
+
+```bash
+./tool/package_linux_appimage.sh ./build/release
+```
+
+The script downloads the pinned linuxdeploy tool, verifies its SHA-256 digest, and produces `build/release/Airbridge-Linux-x86_64.AppImage`. Allow the configured TCP/UDP ports in the host firewall.
 
 ## 7. macOS
 
@@ -168,7 +181,13 @@ cd airbridge_mobile
 flutter build macos --release
 ```
 
-The app is under `build/macos/Build/Products/Release/`. macOS may ask for Local Network access; approve it. The bootstrap adds client/server network entitlements for the generated macOS sandbox profile.
+The app is under `build/macos/Build/Products/Release/`. Package it as a drag-to-Applications disk image with:
+
+```bash
+./tool/package_macos_dmg.sh ./build/release
+```
+
+The output is `build/release/Airbridge-macOS.dmg`. It is not code-signed or notarized yet. macOS may ask for Local Network access; approve it. The bootstrap adds client/server network entitlements for the generated macOS sandbox profile.
 
 ## 8. iOS
 
@@ -187,7 +206,11 @@ flutter build ipa --release
 
 Open `ios/Runner.xcworkspace` in Xcode to select the signing team and install on a device. iOS asks the user for Local Network permission. UDP broadcast/multicast discovery also requires Apple's `com.apple.developer.networking.multicast` entitlement to be enabled for the App ID and included in the provisioning profile; the bootstrap configures the entitlement file, but Apple approval/profile provisioning is an external prerequisite. The app is a foreground peer: iOS can suspend its sockets when backgrounded.
 
-## 9. API smoke test
+## 9. Versioned GitHub releases
+
+Releases are published automatically only after a matching `vMAJOR.MINOR.PATCH` tag is pushed for a commit already merged into `main`. The workflow publishes a directly installable Android APK, Windows setup `.exe` (including the complete Flutter runtime bundle), Linux x86_64 AppImage, macOS DMG, SHA-256 checksums, and signed GitHub provenance attestations—never ZIP release assets. iOS requires Apple signing/profile setup and is not included as an installable public release. See [`docs/releasing.md`](../docs/releasing.md) for the exact tag command, package build commands, installation notes, and checksum/attestation verification.
+
+## 10. API smoke test
 
 `/status` is public for discovery/diagnostics. Anonymous writes are rejected. Pair app devices through the QR flow; for direct HTTP writes from a trusted script, build the node with `AIRBRIDGE_SHARED_SECRET` and sign the exact request body bytes plus a timestamp and one-time nonce. The server accepts timestamps within 120 seconds and rejects a nonce replay:
 
@@ -210,7 +233,7 @@ The WebSocket endpoint is `ws://<node-ip>:8765/ws`. The server first sends a ran
 
 Defaults are TCP `8765` and UDP `47660`, configurable with `--dart-define=AIRBRIDGE_HTTP_PORT=...` and `--dart-define=AIRBRIDGE_UDP_PORT=...` (use the same UDP port across a LAN). Both listeners bind to `0.0.0.0`. UDP beacons advertise the service identifier `_airbridge._tcp.local.` and include the node's TCP port. Wi-Fi AP/client isolation, VPNs, host firewalls, iOS Local Network consent, and Android battery/background policies can prevent discovery or continuous availability.
 
-## 10. Troubleshooting
+## 11. Troubleshooting
 
 ### Peers do not appear
 
