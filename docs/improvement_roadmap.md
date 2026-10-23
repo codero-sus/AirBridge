@@ -1,6 +1,6 @@
 # AirBridge improvement program
 
-The `777+` request is being treated as a multi-release engineering program, not as a claim that hundreds of untested changes can safely ship in one patch. The initial backlog listed 100 concrete work items across reliability, security, dashboard/diagnostics, and build/release; subsequent QR-pairing and versioned-release waves extend it to 111. Checked items are implemented and verified; unchecked items remain planned. Later waves should add acceptance tests and preserve backward compatibility before landing.
+The `777+` request is being treated as a multi-release engineering program, not as a claim that hundreds of untested changes can safely ship in one patch. The initial backlog listed 100 concrete work items across reliability, security, dashboard/diagnostics, and build/release; subsequent QR-pairing, versioned-release, and navigation/artifact-discoverability waves extend it to 113. Checked items are implemented and verified; unchecked items remain planned. Later waves should add acceptance tests and preserve backward compatibility before landing.
 
 ## Wave 1 — Reliability and secure-input baseline (001–020)
 
@@ -133,6 +133,11 @@ The `777+` request is being treated as a multi-release engineering program, not 
 - [x] **109** Publish direct Android APK, Windows installer `.exe` with its full runtime bundle, Linux x86_64 AppImage, and macOS DMG assets; reject ZIP release assets.
 - [x] **110** Generate and verify a SHA-256 manifest, then attach signed GitHub build-provenance attestations to release files.
 - [ ] **111** Run the first tagged public release and verify installation on clean devices; configure native platform signing/notarization when credentials and entitlements are available.
+
+## Wave 8 — Navigation and artifact discoverability (112–113)
+
+- [x] **112** Replace the single long dashboard with a responsive desktop sidebar/mobile drawer for Overview, Messages, Mesh peers, and Activity; add a desktop/mobile navigation widget test.
+- [x] **113** Upload Android, Linux, Windows, macOS, and explicitly unsigned iOS CI build outputs, then provide a seven-day all-platforms ZIP with checksums as an Actions artifact while keeping GitHub Release assets separate and ZIP-free; CI run `39941992119` passed.
 
 ## Delivery rules
 
