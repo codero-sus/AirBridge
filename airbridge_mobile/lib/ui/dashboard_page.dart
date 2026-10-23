@@ -550,6 +550,7 @@ class _MetricCard extends StatelessWidget {
     required this.value,
     required this.detail,
     required this.accent,
+    required this.iconBackground,
   });
 
   final IconData icon;
@@ -557,6 +558,7 @@ class _MetricCard extends StatelessWidget {
   final String value;
   final String detail;
   final Color accent;
+  final Color iconBackground;
 
   @override
   Widget build(BuildContext context) => _GlassPanel(
@@ -567,7 +569,7 @@ class _MetricCard extends StatelessWidget {
               width: 38,
               height: 38,
               decoration: BoxDecoration(
-                color: Color.fromARGB(31, accent.red, accent.green, accent.blue),
+                color: iconBackground,
                 borderRadius: BorderRadius.circular(12),
               ),
               child: Icon(icon, color: accent, size: 19),
@@ -639,6 +641,9 @@ class _OverviewSection extends StatelessWidget {
         value: controller.lifecycle.toUpperCase(),
         detail: '${controller.localAddress}:${controller.config.httpPort}',
         accent: controller.isRunning ? _mint : const Color(0xFFFFC977),
+        iconBackground: controller.isRunning
+            ? const Color(0x1F63E6BE)
+            : const Color(0x1FFFC977),
       ),
       _MetricCard(
         icon: Icons.hub_outlined,
@@ -646,6 +651,7 @@ class _OverviewSection extends StatelessWidget {
         value: '${controller.peers.length}',
         detail: '${controller.connectedPeerCount} linked now',
         accent: const Color(0xFF8CA8FF),
+        iconBackground: const Color(0x1F8CA8FF),
       ),
       _MetricCard(
         icon: Icons.swap_horiz_rounded,
@@ -653,6 +659,7 @@ class _OverviewSection extends StatelessWidget {
         value: '${controller.messages.length}',
         detail: 'retained on this device',
         accent: const Color(0xFFFFC977),
+        iconBackground: const Color(0x1FFFC977),
       ),
       _MetricCard(
         icon: Icons.verified_user_outlined,
@@ -660,6 +667,7 @@ class _OverviewSection extends StatelessWidget {
         value: '${controller.trustedPeers.length}',
         detail: controller.hasSharedSecret ? 'encrypted mesh enabled' : 'paired individually',
         accent: const Color(0xFFC5A5FF),
+        iconBackground: const Color(0x1FC5A5FF),
       ),
     ];
 
