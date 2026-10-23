@@ -1,6 +1,6 @@
 # AirBridge improvement program
 
-The `777+` request is being treated as a multi-release engineering program, not as a claim that hundreds of untested changes can safely ship in one patch. The initial backlog listed 100 concrete work items across reliability, security, dashboard/diagnostics, and build/release; the follow-up QR-pairing wave extends it to 107. Checked items are implemented and verified; unchecked items remain planned. Later waves should add acceptance tests and preserve backward compatibility before landing.
+The `777+` request is being treated as a multi-release engineering program, not as a claim that hundreds of untested changes can safely ship in one patch. The initial backlog listed 100 concrete work items across reliability, security, dashboard/diagnostics, and build/release; subsequent QR-pairing and versioned-release waves extend it to 111. Checked items are implemented and verified; unchecked items remain planned. Later waves should add acceptance tests and preserve backward compatibility before landing.
 
 ## Wave 1 — Reliability and secure-input baseline (001–020)
 
@@ -114,7 +114,7 @@ The `777+` request is being treated as a multi-release engineering program, not 
 - [ ] **096** Add memory budgets and regression thresholds to CI.
 - [ ] **097** Test deterministic cleanup after cancellation and app lifecycle transitions.
 - [ ] **098** Add a compatibility matrix for Android, iOS, Windows, Linux, and macOS.
-- [ ] **099** Add signed release builds and verify checksums for published packages.
+- [ ] **099** Add platform-native code signing and notarization (Authenticode, Play signing, and Apple notarization); SHA-256 verification and signed GitHub provenance are delivered in Wave 7, but platform credentials are not configured.
 - [ ] **100** Review the roadmap after each release and expand the next wave with measured, non-duplicative tasks.
 
 ## Wave 6 — Passwordless QR pairing (101–107)
@@ -126,6 +126,13 @@ The `777+` request is being treated as a multi-release engineering program, not 
 - [x] **105** Add camera QR scanning on Android/iOS and a copy/paste fallback for desktop.
 - [x] **106** Reject anonymous HTTP writes and WebSocket mesh links in per-device pairing mode.
 - [x] **107** Test QR parsing, expiry, replay, bad-proof lockout, persistence, and paired WebSocket links.
+
+## Wave 7 — Versioned release delivery (108–111)
+
+- [x] **108** Gate releases on stable `vMAJOR.MINOR.PATCH` tags that match `pubspec.yaml` and point to a commit already reachable from `main`.
+- [x] **109** Publish direct Android APK, Windows installer `.exe` with its full runtime bundle, Linux x86_64 AppImage, and macOS DMG assets; reject ZIP release assets.
+- [x] **110** Generate and verify a SHA-256 manifest, then attach signed GitHub build-provenance attestations to release files.
+- [ ] **111** Run the first tagged public release and verify installation on clean devices; configure native platform signing/notarization when credentials and entitlements are available.
 
 ## Delivery rules
 

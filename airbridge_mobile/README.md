@@ -6,6 +6,10 @@
 
 A single Flutter/Dart codebase for Android, iOS, Windows, Linux, and macOS. Flutter provides a native-rendered Material 3 UI; Dart's `dart:io` supplies real IPv4 UDP, HTTP, and WebSocket sockets without a separate embedded Python/Node runtime. CPU-heavy AES-GCM work and message-spool file operations run in bounded worker isolates, keeping the UI isolate responsive.
 
+## Downloads and releases
+
+Versioned, installable downloads will be published on the [GitHub Releases page](https://github.com/codero-sus/AirBridge/releases) after a matching release tag is pushed for a commit on `main`: Android APK, Windows installer `.exe`, Linux x86_64 AppImage, macOS DMG, and `SHA256SUMS.txt`. Release assets are not ZIPs. The Windows installer includes Flutter's adjacent runtime files rather than shipping only the runner executable. Releases are triggered only by matching `vMAJOR.MINOR.PATCH` tags on commits already merged into `main`; see [`docs/releasing.md`](../docs/releasing.md) for versioning, build, install, checksum, and provenance instructions. iOS remains unsigned and is not published as an installable package.
+
 ## Architecture
 
 ```text
