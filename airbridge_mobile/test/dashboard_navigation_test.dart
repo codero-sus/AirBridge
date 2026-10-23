@@ -6,25 +6,25 @@ import 'package:airbridge_mobile/ui/dashboard_page.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-void main() {
-  testWidgets(
-    'sidebar navigation adapts to desktop and mobile layouts',
-    (tester) async {
-    final directory = await Directory.systemTemp.createTemp('airbridge-ui-');
-    final controller = NodeController(
+NodeController _newController() => NodeController(
       NodeConfig.forTesting(
         deviceId: '00000000-0000-4000-8000-000000000001',
         deviceName: 'Navigation test node',
-        supportDirectory: directory,
-        messageDirectory: directory,
+        supportDirectory: Directory.systemTemp,
+        messageDirectory: Directory.systemTemp,
         httpPort: 18765,
       ),
     );
+
+void main() {
+  testWidgets('desktop sidebar switches between dashboard sections', (
+    tester,
+  ) async {
+    final controller = _newController();
     addTearDown(() async {
       await tester.pumpWidget(const SizedBox.shrink());
       controller.dispose();
       await tester.binding.setSurfaceSize(null);
-      if (await directory.exists()) await directory.delete(recursive: true);
     });
 
     await tester.binding.setSurfaceSize(const Size(1280, 900));
@@ -47,9 +47,22 @@ void main() {
       find.text('Recent startup, discovery, pairing, and delivery events.'),
       findsOneWidget,
     );
+  });
+
+  testWidgets('mobile drawer navigates to the peer list', (tester) async {
+    final controller = _newController();
+    addTearDown(() async {
+      await tester.pumpWidget(const SizedBox.shrink());
+      controller.dispose();
+      await tester.binding.setSurfaceSize(null);
+    });
 
     await tester.binding.setSurfaceSize(const Size(390, 844));
+    await tester.pumpWidget(
+      MaterialApp(home: DashboardPage(controller: controller)),
+    );
     await tester.pumpAndSettle();
+
     expect(find.byTooltip('Open navigation'), findsOneWidget);
     await tester.tap(find.byTooltip('Open navigation'));
     await tester.pumpAndSettle();
