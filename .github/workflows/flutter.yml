@@ -30,6 +30,27 @@ jobs:
       - name: Bootstrap platform projects and resolve dependencies
         run: bash ./tool/bootstrap_platforms.sh
 
+      - name: Report dependency-resolution diagnostics on bootstrap failure
+        if: failure()
+        shell: bash
+        run: |
+          set +e
+          flutter pub get --verbose > "$RUNNER_TEMP/airbridge-pub-get.log" 2>&1
+          pub_exit=$?
+          if [[ "$pub_exit" -eq 0 ]]; then
+            echo "::warning::Standalone flutter pub get succeeded; inspect the earlier bootstrap step."
+            exit 0
+          fi
+          python3 - "$RUNNER_TEMP/airbridge-pub-get.log" <<'PY'
+          import pathlib
+          import sys
+
+          lines = pathlib.Path(sys.argv[1]).read_text(errors="replace").splitlines()
+          details = "\n".join(lines[-40:])
+          escaped = details.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+          print("::error title=Flutter dependency resolution failed::" + escaped)
+          PY
+
       - name: Analyze Dart sources
         shell: bash
         run: |
