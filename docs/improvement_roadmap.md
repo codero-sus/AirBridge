@@ -148,7 +148,7 @@ The `777+` request is being treated as a multi-release engineering program, not 
 - [x] **118** Persist device name, Bluetooth state, incoming-file acceptance, and the configurable receive cap in Settings.
 - [x] **119** Add visible Troubleshooting and Docs sections, actionable diagnostics, and security caveats.
 - [x] **120** Add focused AES-GCM, file-store, encrypted HTTP/WebSocket, settings, and navigation tests; validate with Flutter analyze, tests, and platform builds in CI (run `40083540267` passed).
-- [ ] **121** Verify real-device transfers across Android/Windows, iOS/macOS, and Linux BLE limitations; protect the confirmed BlueStacks-to-Windows LAN pairing path. New BLE hardware tests remain pending; CI verifies the cross-platform builds, not physical adapters or emulator BLE passthrough.
+- [ ] **121** Verify real-device transfers across Android, Windows, iOS, macOS, and Linux (BlueZ); protect the confirmed BlueStacks-to-Windows LAN pairing path. Linux now has a BlueZ GATT peripheral adapter plus adapter/protocol tests; CI execution, physical BLE hardware, and emulator passthrough remain to be verified.
 
 ## Delivery rules
 

@@ -1468,7 +1468,7 @@ class _BluetoothSectionState extends State<_BluetoothSection> {
         const SizedBox(height: 3),
         const _GlassPanel(
           child: Text(
-            'Platform note: Bluetooth advertising/receiving is supported by Android, iOS, macOS, and Windows adapters. Linux supports BLE client mode, but peripheral/advertising support is still limited. BlueStacks Bluetooth passthrough depends on the host and emulator configuration.',
+            'Airbridge uses the same BLE GATT service and encrypted packet protocol across supported OSs. Linux uses BlueZ for its GATT peripheral; keep the Bluetooth service running and use a Bluetooth LE adapter. BlueStacks Bluetooth passthrough depends on the host and emulator configuration.'
             style: TextStyle(color: _muted, fontSize: 10, height: 1.5),
           ),
         ),
@@ -1745,7 +1745,7 @@ class _DocsSection extends StatelessWidget {
             bullets: <String>[
               'Enable Bluetooth in Settings, then scan from the Bluetooth tab. Pair with QR before transferring.',
               'Bluetooth uses BLE GATT, not Bluetooth Classic. Lower throughput makes LAN preferable for large files.',
-              'Android, iOS, macOS, and Windows can advertise/receive when the adapter and OS permit it. Linux peripheral support is limited.',
+              'Android, iOS, macOS, Windows, and Linux use the same Airbridge BLE service and encrypted packet protocol. Linux GATT advertising/receiving uses BlueZ; keep its Bluetooth service running and power an LE adapter.',
             ],
           ),
           SizedBox(height: 12),

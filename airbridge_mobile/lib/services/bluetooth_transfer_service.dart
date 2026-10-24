@@ -9,14 +9,16 @@ import 'package:flutter/foundation.dart';
 import 'package:universal_ble/universal_ble.dart';
 
 import '../config/node_config.dart';
+import 'bluetooth_packet_assembler.dart';
 import 'file_transfer_store.dart';
+import 'linux_ble_peripheral.dart';
 import 'security.dart';
 
 const String _serviceUuid = 'a7f30001-7b9a-4b1d-9c8c-7f6a4d1e0001';
 const String _identityCharacteristicUuid = 'a7f30002-7b9a-4b1d-9c8c-7f6a4d1e0001';
 const String _dataCharacteristicUuid = 'a7f30003-7b9a-4b1d-9c8c-7f6a4d1e0001';
-const int _fragmentHeaderBytes = 8;
-const int _maxBlePacketBytes = 128 * 1024;
+const int _fragmentHeaderBytes = BluetoothPacketAssembler.fragmentHeaderBytes;
+const int _maxBlePacketBytes = BluetoothPacketAssembler.defaultMaxPacketBytes;
 const int _maxBleFileChunkBytes = 12 * 1024;
 const int _lowMtuBleFileThreshold = 64;
 const int _maxLowMtuBleFileBytes = 10 * 1024 * 1024;
@@ -47,8 +49,9 @@ class BluetoothTransferService {
   final VoidCallback onChanged;
 
   final Map<String, BleDevice> _devices = <String, BleDevice>{};
-  final Map<String, _BleAssembly> _assemblies = <String, _BleAssembly>{};
+  final BluetoothPacketAssembler _packetAssembler = BluetoothPacketAssembler();
   final Set<String> _connectedDevices = <String>{};
+  LinuxBlePeripheral? _linuxPeripheral;
   Future<void> _eventQueue = Future<void>.value();
   final Random _random = Random.secure();
   bool _enabled = false;
@@ -85,7 +88,9 @@ class BluetoothTransferService {
           ? (_advertising
               ? 'Advertising securely • ready to scan and transfer'
               : 'Bluetooth ready • advertising unavailable on this adapter')
-          : 'Bluetooth ready • this platform can scan/send but cannot advertise/receive';
+          : (_lastError != null
+              ? 'Bluetooth scan/send is ready • local receive failed to start'
+              : 'Bluetooth scan/send is ready • local receive is unavailable on this adapter');
       onLog('INFO', _status);
       _notify();
     } on Object catch (error) {
@@ -98,16 +103,26 @@ class BluetoothTransferService {
   }
 
   Future<void> stop() async {
-    if (!_enabled && !_scanning && !_advertising) return;
+    if (!_enabled && !_scanning && !_advertising && _linuxPeripheral == null) return;
     try {
       if (_scanning) await UniversalBle.stopScan();
     } on Object catch (error) {
       onLog('WARN', 'Could not stop the Bluetooth scan: $error');
     }
-    try {
-      if (_advertising) await UniversalBlePeripheral.stopAdvertising();
-    } on Object catch (error) {
-      onLog('WARN', 'Could not stop Bluetooth advertising: $error');
+    final linuxPeripheral = _linuxPeripheral;
+    _linuxPeripheral = null;
+    if (linuxPeripheral != null) {
+      try {
+        await linuxPeripheral.stop();
+      } on Object catch (error) {
+        onLog('WARN', 'Could not stop Linux Bluetooth receiving: $error');
+      }
+    } else if (_advertising) {
+      try {
+        await UniversalBlePeripheral.stopAdvertising();
+      } on Object catch (error) {
+        onLog('WARN', 'Could not stop Bluetooth advertising: $error');
+      }
     }
     for (final deviceId in _connectedDevices.toList(growable: false)) {
       try {
@@ -118,10 +133,11 @@ class BluetoothTransferService {
     }
     _connectedDevices.clear();
     UniversalBle.onScanResult = null;
-    _assemblies.clear();
+    _packetAssembler.clear();
     _enabled = false;
     _scanning = false;
     _advertising = false;
+    _peripheralSupported = false;
     _devices.clear();
     _status = 'Bluetooth is off';
     _lastError = null;
@@ -418,6 +434,33 @@ class BluetoothTransferService {
   }
 
   Future<void> _preparePeripheral() async {
+    if (Platform.isLinux) {
+      final linuxPeripheral = LinuxBlePeripheral(
+        deviceId: config.deviceId,
+        serviceUuid: _serviceUuid,
+        identityCharacteristicUuid: _identityCharacteristicUuid,
+        dataCharacteristicUuid: _dataCharacteristicUuid,
+        onWrite: _acceptFragment,
+        onLog: onLog,
+      );
+      _linuxPeripheral = linuxPeripheral;
+      try {
+        await linuxPeripheral.start();
+        _peripheralSupported = true;
+        _advertising = true;
+        return;
+      } on Object catch (error) {
+        _peripheralSupported = false;
+        _advertising = false;
+        _lastError = error.toString();
+        onLog(
+          'WARN',
+          'Linux BlueZ Bluetooth receive/advertising failed: $error',
+        );
+        return;
+      }
+    }
+
     try {
       final capabilities = await UniversalBlePeripheral.getCapabilities();
       _peripheralSupported = capabilities.supportsPeripheralMode;
@@ -490,46 +533,8 @@ class BluetoothTransferService {
   }
 
   void _acceptFragment(String deviceId, Uint8List value) {
-    if (value.length < _fragmentHeaderBytes || value[0] != 0x41 || value[1] != 0x42) {
-      return;
-    }
-    final header = ByteData.sublistView(value);
-    final packetId = header.getUint16(2, Endian.big);
-    final index = header.getUint16(4, Endian.big);
-    final count = header.getUint16(6, Endian.big);
-    if (count == 0 || count > 12000 || index >= count) return;
-
-    _pruneAssemblies();
-    final key = '$deviceId:$packetId';
-    var assembly = _assemblies[key];
-    if (assembly == null) {
-      final deviceAssemblyCount = _assemblies.keys.where((item) => item.startsWith('$deviceId:')).length;
-      if (deviceAssemblyCount >= 4) return;
-      assembly = _BleAssembly(count);
-      _assemblies[key] = assembly;
-    }
-    if (assembly.count != count) {
-      _assemblies.remove(key);
-      return;
-    }
-    if (!assembly.fragments.containsKey(index)) {
-      assembly.fragments[index] = Uint8List.fromList(value.sublist(_fragmentHeaderBytes));
-      assembly.receivedBytes += value.length - _fragmentHeaderBytes;
-    }
-    if (assembly.receivedBytes > _maxBlePacketBytes) {
-      _assemblies.remove(key);
-      return;
-    }
-    if (assembly.fragments.length != count) return;
-
-    final builder = BytesBuilder(copy: false);
-    for (var fragmentIndex = 0; fragmentIndex < count; fragmentIndex++) {
-      final fragment = assembly.fragments[fragmentIndex];
-      if (fragment == null) return;
-      builder.add(fragment);
-    }
-    _assemblies.remove(key);
-    final packet = builder.takeBytes();
+    final packet = _packetAssembler.addFragment(deviceId, value);
+    if (packet == null) return;
     _eventQueue = _eventQueue.then((_) => _handleEvent(packet));
   }
 
@@ -635,11 +640,6 @@ class BluetoothTransferService {
     }
   }
 
-  void _pruneAssemblies() {
-    final cutoff = DateTime.now().subtract(const Duration(seconds: 30));
-    _assemblies.removeWhere((_, assembly) => assembly.createdAt.isBefore(cutoff));
-  }
-
   int _fileChunkSize(int mtu) {
     final characteristicBytes = max(12, mtu - 3 - _fragmentHeaderBytes);
     return (characteristicBytes * 20).clamp(128, _maxBleFileChunkBytes).toInt();
@@ -682,13 +682,4 @@ class _BluetoothConnection {
   final String peerName;
   final String secret;
   final int mtu;
-}
-
-class _BleAssembly {
-  _BleAssembly(this.count) : createdAt = DateTime.now();
-
-  final int count;
-  final DateTime createdAt;
-  final Map<int, Uint8List> fragments = <int, Uint8List>{};
-  int receivedBytes = 0;
 }
