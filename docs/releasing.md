@@ -14,6 +14,19 @@ Airbridge publishes installable release assets directly to the GitHub **Releases
 
 The assets are not currently signed with platform-native release certificates. Windows may show SmartScreen, macOS is not notarized and may require Control-click → **Open**, and the Android APK is intended for sideloading. Each asset (including the checksum manifest) receives a signed GitHub build-provenance attestation; this authenticates the workflow/source identity but is not a substitute for Authenticode, Apple notarization, or a Play signing key. iOS is built unsigned in CI but is not published as an installable release because distribution requires an Apple signing team/profile and Apple's multicast entitlement.
 
+## Pairing links and cameras in release builds
+
+All native packages include the `airbridge://pair?...` handler and the QR-scanning configuration. Android/iOS/macOS register the scheme in their app metadata. The Windows installer registers the protocol and forwards a second launch to the running Airbridge instance. On Linux, the AppImage declares the XDG handler; after downloading it, mark the file executable and register it once from a checkout of this repository:
+
+```bash
+chmod +x "$HOME/Downloads/Airbridge-Linux-x86_64.AppImage"
+./airbridge_mobile/tool/register_linux_url_scheme.sh "$HOME/Downloads/Airbridge-Linux-x86_64.AppImage"
+```
+
+To smoke-test the OS handler, run `Start-Process 'airbridge://pair?test=1'` in PowerShell, `xdg-open 'airbridge://pair?test=1'` on Linux after registration, or `open 'airbridge://pair?test=1'` on macOS. The sample token is intentionally invalid; success means Airbridge opens the pairing flow and displays an invalid-invitation message. The Android equivalent is `adb shell am start -a android.intent.action.VIEW -d 'airbridge://pair?test=1'`.
+
+Windows and Linux release builds scan with selectable connected webcams (including wired USB webcams); mobile/macOS use the native scanner with an alternate camera engine if needed. Grant camera access in OS settings before scanning. GitHub Releases remain separate native assets—these setup steps do not introduce ZIP Release assets.
+
 ## How releases are triggered
 
 `.github/workflows/release.yml` runs only when a `vMAJOR.MINOR.PATCH` tag is pushed. Before building, it verifies that:
