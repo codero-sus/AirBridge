@@ -5,6 +5,7 @@ import 'package:airbridge_mobile/config/node_config.dart';
 import 'package:airbridge_mobile/models/peer.dart';
 import 'package:airbridge_mobile/services/api_gateway.dart';
 import 'package:airbridge_mobile/services/file_transfer_store.dart';
+import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:flutter_test/flutter_test.dart';
 
 const String _leftId = '00000000-0000-4000-8000-000000000001';
@@ -108,8 +109,8 @@ void main() {
           onProgress: (sent, _) => sentBytes = sent,
         );
       } on Object catch (error, stackTrace) {
-        print('FILE_TRANSFER_GATEWAY_SEND_ERROR: $error');
-        print(stackTrace);
+        debugPrint('FILE_TRANSFER_GATEWAY_SEND_ERROR: $error');
+        debugPrint('$stackTrace');
         rethrow;
       }
       final record = await receivedFile.future.timeout(const Duration(seconds: 15));
