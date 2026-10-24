@@ -1,6 +1,6 @@
 # AirBridge improvement program
 
-The `777+` request is being treated as a multi-release engineering program, not as a claim that hundreds of untested changes can safely ship in one patch. The initial backlog listed 100 concrete work items across reliability, security, dashboard/diagnostics, and build/release; subsequent QR-pairing, versioned-release, and navigation/artifact-discoverability waves extend it to 113. Checked items are implemented and verified; unchecked items remain planned. Later waves should add acceptance tests and preserve backward compatibility before landing.
+The `777+` request is being treated as a multi-release engineering program, not as a claim that hundreds of untested changes can safely ship in one patch. The initial backlog listed 100 concrete work items across reliability, security, dashboard/diagnostics, and build/release; subsequent QR-pairing, versioned-release, navigation/artifact-discoverability, and encrypted-transfer waves extend it to 121. Checked items are implemented and verified; unchecked items remain planned. Later waves should add acceptance tests and preserve backward compatibility before landing.
 
 ## Wave 1 — Reliability and secure-input baseline (001–020)
 
@@ -138,6 +138,17 @@ The `777+` request is being treated as a multi-release engineering program, not 
 
 - [x] **112** Replace the single long dashboard with a responsive desktop sidebar/mobile drawer for Overview, Messages, Mesh peers, and Activity; add a desktop/mobile navigation widget test.
 - [x] **113** Upload Android, Linux, Windows, macOS, and explicitly unsigned iOS CI build outputs, then provide a seven-day all-platforms ZIP with checksums as an Actions artifact while keeping GitHub Release assets separate and ZIP-free; CI run `39941992119` passed.
+
+## Wave 9 — Encrypted transfers, Bluetooth, and user controls (114–121)
+
+- [ ] **114** Seal paired-peer WebSocket messages and HTTP writes with per-peer AES-256-GCM; reject cleartext and replayed HTTP requests.
+- [ ] **115** Add authenticated chunked LAN file transfer with bounded receive size, safe file names, verified length/SHA-256, and a received-file index.
+- [ ] **116** Add file selection/send, receive listing, Save As export, progress, and copyable storage paths.
+- [ ] **117** Add BLE scanning/GATT message and chunked-file transports using the established QR-pairing key; document OS/adapter limitations.
+- [ ] **118** Persist device name, Bluetooth state, incoming-file acceptance, and the configurable receive cap in Settings.
+- [ ] **119** Add visible Troubleshooting and Docs sections, actionable diagnostics, and security caveats.
+- [ ] **120** Add focused AES-GCM, file-store, encrypted HTTP/WebSocket, settings, and navigation tests; validate with Flutter analyze, tests, and platform builds in CI.
+- [ ] **121** Verify real-device transfers across Android/Windows, iOS/macOS, and Linux BLE limitations; protect the confirmed BlueStacks-to-Windows LAN pairing path.
 
 ## Delivery rules
 

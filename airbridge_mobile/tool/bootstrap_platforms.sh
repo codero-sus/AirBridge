@@ -5,7 +5,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
 if ! command -v flutter >/dev/null 2>&1; then
-  echo "Flutter 3.27+ is required. Install Flutter and add it to PATH." >&2
+  echo "Flutter 3.38+ (Dart 3.10+) is required. Install Flutter and add it to PATH." >&2
   exit 1
 fi
 

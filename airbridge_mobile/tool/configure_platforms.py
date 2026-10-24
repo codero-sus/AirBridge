@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Apply Airbridge platform permissions, camera setup, deep links, and logo overlays."""
+"""Apply Airbridge platform permissions, camera/Bluetooth setup, deep links, and logo overlays."""
 
 from __future__ import annotations
 
@@ -227,6 +227,12 @@ def update_apple_info(values: dict) -> None:
     values["NSCameraUsageDescription"] = (
         "Airbridge uses the camera only to scan a nearby device's one-time pairing QR."
     )
+    values["NSBluetoothAlwaysUsageDescription"] = (
+        "Airbridge uses Bluetooth Low Energy to find and transfer data with nearby paired devices."
+    )
+    values["NSBluetoothPeripheralUsageDescription"] = (
+        "Airbridge advertises a Bluetooth Low Energy service so nearby paired devices can send data."
+    )
     url_types = values.setdefault("CFBundleURLTypes", [])
     if not any(
         scheme.lower() == "airbridge"
@@ -260,6 +266,7 @@ def update_macos_entitlements(values: dict) -> None:
     values["com.apple.security.network.client"] = True
     values["com.apple.security.network.server"] = True
     values["com.apple.security.device.camera"] = True
+    values["com.apple.security.device.bluetooth"] = True
 
 
 def main() -> None:
@@ -301,7 +308,7 @@ def main() -> None:
             update_macos_entitlements,
         )
 
-    print("Airbridge platform networking, camera, and deep-link configuration is ready.")
+    print("Airbridge networking, camera, Bluetooth, and deep-link platform configuration is ready.")
 
 
 if __name__ == "__main__":

@@ -94,7 +94,7 @@ void main() {
           received.add(envelope);
         },
         onLog: (_, message) {
-          if (message.contains('Rejected malformed mesh envelope') &&
+          if (message.contains('Rejected cleartext or malformed mesh message') &&
               !malformedEnvelopeRejected.isCompleted) {
             malformedEnvelopeRejected.complete();
           }
@@ -127,22 +127,34 @@ void main() {
       expect(status['bindAddress'], '0.0.0.0');
       expect(status['role'], 'master');
 
-      final body = jsonEncode(<String, Object?>{
-        'payload': <String, Object?>{'source': 'signed HTTP'},
-      });
-      final timestamp = DateTime.now().toUtc().millisecondsSinceEpoch ~/ 1000;
-      const nonce = '0123456789abcdef0123456789abcdef';
-      final signature = hmacSha256Hex(
-        _sharedSecret,
-        utf8.encode('$timestamp.$nonce.$body'),
+      const httpPeerId = 'http-test-client';
+      final sealedWrite = await sealPeerPayload(
+        secret: _sharedSecret,
+        cleartext: utf8.encode(jsonEncode(<String, Object?>{
+          'payload': <String, Object?>{'source': 'signed HTTP'},
+          'senderName': 'HTTP test peer',
+        })),
+        associatedData: 'airbridge-http-write-v1:$httpPeerId:$_leftId',
+      );
+      final bodyBytes = utf8.encode(jsonEncode(<String, Object?>{
+        'version': 1,
+        'senderId': httpPeerId,
+        'recipientId': _leftId,
+        'sealed': sealedWrite,
+      }));
+      final body = utf8.decode(bodyBytes);
+      final signedHeaders = createSignedPeerHeaders(
+        secret: _sharedSecret,
+        deviceId: httpPeerId,
+        body: bodyBytes,
       );
       final writeRequest = await client.postUrl(
         Uri.parse('http://127.0.0.1:$port/api/write'),
       );
       writeRequest.headers.contentType = ContentType.json;
-      writeRequest.headers.set('X-Airbridge-Timestamp', '$timestamp');
-      writeRequest.headers.set('X-Airbridge-Nonce', nonce);
-      writeRequest.headers.set('X-Airbridge-Signature', signature);
+      for (final header in signedHeaders.entries) {
+        writeRequest.headers.set(header.key, header.value);
+      }
       writeRequest.write(body);
       final writeResponse = await writeRequest.close();
       final writeResult = jsonDecode(await utf8.decoder.bind(writeResponse).join())
@@ -155,9 +167,9 @@ void main() {
         Uri.parse('http://127.0.0.1:$port/api/write'),
       );
       replayRequest.headers.contentType = ContentType.json;
-      replayRequest.headers.set('X-Airbridge-Timestamp', '$timestamp');
-      replayRequest.headers.set('X-Airbridge-Nonce', nonce);
-      replayRequest.headers.set('X-Airbridge-Signature', signature);
+      for (final header in signedHeaders.entries) {
+        replayRequest.headers.set(header.key, header.value);
+      }
       replayRequest.write(body);
       final replayResponse = await replayRequest.close();
       await replayResponse.drain<void>();
@@ -195,22 +207,28 @@ void main() {
 
       webSocket.add(jsonEncode(<String, Object?>{
         'type': 'message',
-        'envelope': <String, Object?>{
-          'version': 2,
-          'id': 'unknown-version',
-          'senderId': clientId,
-          'senderName': 'Test peer',
-          'createdAt': DateTime.now().toUtc().toIso8601String(),
-          'algorithm': 'none',
-          'payload': 'must not be accepted',
-        },
+        'version': 2,
+        'senderId': clientId,
+        'recipientId': _leftId,
+        'messageId': 'malformed-message',
+        'sealed': 'not-an-encrypted-envelope',
       }));
       await malformedEnvelopeRejected.future.timeout(const Duration(seconds: 3));
       expect(received, hasLength(1));
 
+      final sealedWsWrite = await sealPeerPayload(
+        secret: _sharedSecret,
+        cleartext: utf8.encode(jsonEncode(<String, Object?>{
+          'payload': <String, Object?>{'source': 'websocket'},
+          'senderName': 'WebSocket test peer',
+        })),
+        associatedData: 'airbridge-ws-write-v1:$clientId:$_leftId',
+      );
       webSocket.add(jsonEncode(<String, Object?>{
         'type': 'write',
-        'payload': <String, Object?>{'source': 'websocket'},
+        'senderId': clientId,
+        'recipientId': _leftId,
+        'sealed': sealedWsWrite,
       }));
       var gotEcho = false;
       var gotAccepted = false;

@@ -1,10 +1,14 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:universal_ble/universal_ble.dart' show BleDevice;
 
 import '../models/node_message.dart';
+import '../services/file_transfer_store.dart';
 import '../models/peer.dart';
 import '../services/node_controller.dart';
 import 'pairing_dialog.dart';
@@ -24,28 +28,53 @@ class DashboardPage extends StatefulWidget {
   State<DashboardPage> createState() => _DashboardPageState();
 }
 
-enum _DashboardSection { overview, messages, peers, activity }
+enum _DashboardSection {
+  overview,
+  messages,
+  peers,
+  files,
+  bluetooth,
+  activity,
+  troubleshooting,
+  docs,
+  settings,
+}
 
 extension _DashboardSectionDetails on _DashboardSection {
   String get label => switch (this) {
         _DashboardSection.overview => 'Overview',
         _DashboardSection.messages => 'Messages',
         _DashboardSection.peers => 'Mesh peers',
+        _DashboardSection.files => 'Files',
+        _DashboardSection.bluetooth => 'Bluetooth',
         _DashboardSection.activity => 'Activity',
+        _DashboardSection.troubleshooting => 'Troubleshooting',
+        _DashboardSection.docs => 'Docs',
+        _DashboardSection.settings => 'Settings',
       };
 
   String get description => switch (this) {
         _DashboardSection.overview => 'A quick view of your local mesh.',
-        _DashboardSection.messages => 'Send payloads and review message traffic.',
+        _DashboardSection.messages => 'Send payloads and review encrypted message traffic.',
         _DashboardSection.peers => 'Discover, pair, and monitor nearby devices.',
+        _DashboardSection.files => 'Send and receive encrypted files on your local network.',
+        _DashboardSection.bluetooth => 'Pair and transfer data over nearby Bluetooth LE.',
         _DashboardSection.activity => 'Inspect recent node and network events.',
+        _DashboardSection.troubleshooting => 'Run checks and find fixes for connection issues.',
+        _DashboardSection.docs => 'Learn how to pair, transfer, and secure your devices.',
+        _DashboardSection.settings => 'Manage your device, file, and Bluetooth preferences.',
       };
 
   IconData get icon => switch (this) {
         _DashboardSection.overview => Icons.grid_view_rounded,
         _DashboardSection.messages => Icons.forum_outlined,
         _DashboardSection.peers => Icons.hub_outlined,
+        _DashboardSection.files => Icons.folder_open_rounded,
+        _DashboardSection.bluetooth => Icons.bluetooth_rounded,
         _DashboardSection.activity => Icons.receipt_long_outlined,
+        _DashboardSection.troubleshooting => Icons.build_circle_outlined,
+        _DashboardSection.docs => Icons.menu_book_outlined,
+        _DashboardSection.settings => Icons.settings_outlined,
       };
 }
 
@@ -119,7 +148,21 @@ class _DashboardPageState extends State<DashboardPage> {
             controller: widget.controller,
             onPair: () => unawaited(_openPairing(closeDrawer: false)),
           ),
+        _DashboardSection.files => _FilesSection(
+            controller: widget.controller,
+          ),
+        _DashboardSection.bluetooth => _BluetoothSection(
+            controller: widget.controller,
+          ),
         _DashboardSection.activity => _ActivitySection(
+            controller: widget.controller,
+          ),
+        _DashboardSection.troubleshooting => _TroubleshootingSection(
+            controller: widget.controller,
+            onPair: () => unawaited(_openPairing(closeDrawer: false)),
+          ),
+        _DashboardSection.docs => const _DocsSection(),
+        _DashboardSection.settings => _SettingsSection(
             controller: widget.controller,
           ),
       };
@@ -665,7 +708,7 @@ class _OverviewSection extends StatelessWidget {
         icon: Icons.verified_user_outlined,
         label: 'Trusted devices',
         value: '${controller.trustedPeers.length}',
-        detail: controller.hasSharedSecret ? 'encrypted mesh enabled' : 'paired individually',
+        detail: 'per-peer encrypted links',
         accent: const Color(0xFFC5A5FF),
         iconBackground: const Color(0x1FC5A5FF),
       ),
@@ -952,6 +995,1108 @@ class _ActivitySection extends StatelessWidget {
       );
 }
 
+class _FilesSection extends StatefulWidget {
+  const _FilesSection({required this.controller});
+
+  final NodeController controller;
+
+  @override
+  State<_FilesSection> createState() => _FilesSectionState();
+}
+
+class _FilesSectionState extends State<_FilesSection> {
+  String? _selectedPeerId;
+  bool _sending = false;
+  double _progress = 0;
+
+  Future<void> _sendFile() async {
+    final peerId = _selectedPeerId;
+    if (peerId == null || _sending) return;
+    _PickedLocalFile? picked;
+    try {
+      picked = await _pickLocalFile();
+      if (picked == null) return;
+      setState(() {
+        _sending = true;
+        _progress = 0;
+      });
+      await widget.controller.sendFileToPeer(
+        path: picked.path,
+        peerId: peerId,
+        onProgress: (sent, total) {
+          if (mounted) {
+            setState(() => _progress = total == 0 ? 1 : sent / total);
+          }
+        },
+      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Encrypted file transfer completed.')),
+        );
+      }
+    } on Object catch (error) {
+      if (mounted) _showError(context, 'File transfer failed: $error');
+    } finally {
+      await picked?.cleanup();
+      if (mounted) setState(() => _sending = false);
+    }
+  }
+
+  Future<void> _saveFile(FileTransferRecord record) async {
+    try {
+      if (record.sizeBytes > 256 * 1024 * 1024) {
+        throw const FileTransferException(
+          'This file is too large for the in-app Save As dialog. Use the received-files folder shown below.',
+        );
+      }
+      final bytes = await File(record.path).readAsBytes();
+      final result = await FilePicker.saveFile(
+        dialogTitle: 'Save received file',
+        fileName: record.fileName,
+        bytes: bytes,
+      );
+      if (!mounted || result == null) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Saved ${record.fileName}.')),
+      );
+    } on Object catch (error) {
+      if (mounted) _showError(context, 'Could not export file: $error');
+    }
+  }
+
+  Future<void> _copyPath(FileTransferRecord record) async {
+    await Clipboard.setData(ClipboardData(text: record.path));
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Copied the local path for ${record.fileName}.')),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final trustedIds = widget.controller.trustedPeers
+        .map((peer) => peer.deviceId)
+        .toSet();
+    final peers = widget.controller.peers
+        .where((peer) => trustedIds.contains(peer.deviceId) || widget.controller.hasSharedSecret)
+        .toList(growable: false);
+    final selected = peers.any((peer) => peer.deviceId == _selectedPeerId)
+        ? _selectedPeerId
+        : (peers.isEmpty ? null : peers.first.deviceId);
+    final files = widget.controller.receivedFiles;
+
+    return ListView(
+      padding: const EdgeInsets.only(bottom: 8),
+      children: <Widget>[
+        const _PageHeading(
+          icon: Icons.folder_open_rounded,
+          title: 'File transfers',
+          detail: 'Send encrypted files to a paired mesh peer and receive them directly on this device.',
+        ),
+        const SizedBox(height: 15),
+        _GlassPanel(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              const _PanelHeading(
+                icon: Icons.outgoing_mail,
+                title: 'Send over your local network',
+                detail: 'Files are encrypted in chunks and verified after delivery.',
+              ),
+              const SizedBox(height: 14),
+              if (peers.isEmpty)
+                const _EmptyState(
+                  icon: Icons.devices_other_rounded,
+                  title: 'No trusted peer available',
+                  detail: 'Pair a device with its QR code first. Both devices must be on a reachable local network.',
+                )
+              else ...<Widget>[
+                DropdownButtonFormField<String>(
+                  value: selected,
+                  isExpanded: true,
+                  decoration: const InputDecoration(
+                    labelText: 'Send to paired device',
+                    prefixIcon: Icon(Icons.devices_rounded),
+                  ),
+                  hint: const Text('Choose a trusted peer'),
+                  items: peers
+                      .map(
+                        (peer) => DropdownMenuItem<String>(
+                          value: peer.deviceId,
+                          child: Text(
+                            '${peer.deviceName}  ·  ${peer.host}',
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      )
+                      .toList(growable: false),
+                  onChanged: _sending
+                      ? null
+                      : (value) => setState(() => _selectedPeerId = value),
+                ),
+                const SizedBox(height: 12),
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton.icon(
+                    onPressed: !widget.controller.isRunning || _sending || peers.isEmpty
+                        ? null
+                        : _sendFile,
+                    icon: _sending
+                        ? const SizedBox(
+                            width: 17,
+                            height: 17,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.upload_file_rounded),
+                    label: Text(_sending ? 'Encrypting and sending…' : 'Choose a file and send'),
+                    style: FilledButton.styleFrom(
+                      backgroundColor: _mint,
+                      foregroundColor: const Color(0xFF07120F),
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                    ),
+                  ),
+                ),
+                if (_sending) ...<Widget>[
+                  const SizedBox(height: 12),
+                  LinearProgressIndicator(value: _progress),
+                  const SizedBox(height: 5),
+                  Text('${(_progress * 100).round()}% sent',
+                      style: const TextStyle(color: _muted, fontSize: 10)),
+                ],
+              ],
+              const SizedBox(height: 12),
+              const Text(
+                'The receiver stores completed files in its private Airbridge data folder. Incoming files are accepted only from paired peers; SHA-256 is checked before a file appears here.',
+                style: TextStyle(color: _muted, fontSize: 10, height: 1.45),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 14),
+        _GlassPanel(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              _PanelHeading(
+                icon: Icons.download_done_rounded,
+                title: 'Received files',
+                detail: '${files.length} saved on this device',
+                trailing: IconButton(
+                  tooltip: 'Copy received-files folder path',
+                  onPressed: () async {
+                    await Clipboard.setData(
+                      ClipboardData(text: widget.controller.receivedFilesDirectory),
+                    );
+                    if (!context.mounted) return;
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Copied received-files folder path.')),
+                    );
+                  },
+                  icon: const Icon(Icons.folder_copy_outlined, size: 17),
+                ),
+              ),
+              const SizedBox(height: 10),
+              if (files.isEmpty)
+                const _EmptyState(
+                  icon: Icons.move_to_inbox_outlined,
+                  title: 'No files received yet',
+                  detail: 'New files appear after encryption and integrity checks complete.',
+                )
+              else
+                ...files.map(
+                  (record) => Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: _ReceivedFileTile(
+                      record: record,
+                      onSave: () => _saveFile(record),
+                      onCopyPath: () => _copyPath(record),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _ReceivedFileTile extends StatelessWidget {
+  const _ReceivedFileTile({
+    required this.record,
+    required this.onSave,
+    required this.onCopyPath,
+  });
+
+  final FileTransferRecord record;
+  final VoidCallback onSave;
+  final VoidCallback onCopyPath;
+
+  @override
+  Widget build(BuildContext context) => Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
+        decoration: BoxDecoration(
+          color: const Color(0xFF0C1220),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: _border),
+        ),
+        child: Row(
+          children: <Widget>[
+            Container(
+              width: 36,
+              height: 36,
+              decoration: BoxDecoration(
+                color: const Color(0x1F63E6BE),
+                borderRadius: BorderRadius.circular(11),
+              ),
+              child: const Icon(Icons.insert_drive_file_outlined, color: _mint, size: 18),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  Text(record.fileName,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(color: Color(0xFFE5EAF3), fontSize: 12, fontWeight: FontWeight.w700)),
+                  const SizedBox(height: 3),
+                  Text(
+                    '${_formatBytes(record.sizeBytes)}  ·  ${record.senderName}  ·  ${record.source}',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(color: _muted, fontSize: 10),
+                  ),
+                ],
+              ),
+            ),
+            IconButton(tooltip: 'Save a copy', onPressed: onSave, icon: const Icon(Icons.save_alt_rounded, size: 17)),
+            IconButton(tooltip: 'Copy file path', onPressed: onCopyPath, icon: const Icon(Icons.content_copy_rounded, size: 16)),
+          ],
+        ),
+      );
+}
+
+class _BluetoothSection extends StatefulWidget {
+  const _BluetoothSection({required this.controller});
+
+  final NodeController controller;
+
+  @override
+  State<_BluetoothSection> createState() => _BluetoothSectionState();
+}
+
+class _BluetoothSectionState extends State<_BluetoothSection> {
+  final TextEditingController _messageController = TextEditingController();
+  bool _busy = false;
+  double _progress = 0;
+
+  @override
+  void dispose() {
+    _messageController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _enableOrScan() async {
+    try {
+      if (!widget.controller.bluetooth.isEnabled) {
+        await widget.controller.updateSettings(bluetoothEnabled: true);
+      }
+      if (!widget.controller.bluetooth.isScanning) {
+        await widget.controller.bluetooth.startScan();
+      } else {
+        await widget.controller.bluetooth.stopScan();
+      }
+    } on Object catch (error) {
+      if (mounted) _showError(context, 'Bluetooth could not start: $error');
+    }
+  }
+
+  Future<_PickedLocalFile?> _chooseFile() async {
+    try {
+      return await _pickLocalFile();
+    } on Object catch (error) {
+      if (mounted) _showError(context, 'Could not read the selected file: $error');
+      return null;
+    }
+  }
+
+  Future<void> _sendFile(BleDevice device) async {
+    if (_busy) return;
+    _PickedLocalFile? picked;
+    try {
+      picked = await _chooseFile();
+      if (picked == null) return;
+      setState(() {
+        _busy = true;
+        _progress = 0;
+      });
+      await widget.controller.sendBluetoothFile(
+        device: device,
+        path: picked.path,
+        onProgress: (sent, total) {
+          if (mounted) setState(() => _progress = total == 0 ? 1 : sent / total);
+        },
+      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Encrypted Bluetooth file sent.')),
+        );
+      }
+    } on Object catch (error) {
+      if (mounted) _showError(context, 'Bluetooth transfer failed: $error');
+    } finally {
+      await picked?.cleanup();
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _sendMessage(BleDevice device) async {
+    final text = _messageController.text.trim();
+    if (text.isEmpty || _busy) return;
+    setState(() => _busy = true);
+    try {
+      await widget.controller.sendBluetoothMessage(device: device, payload: text);
+      _messageController.clear();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Encrypted Bluetooth message sent to ${device.name ?? 'device'}.')),
+        );
+      }
+    } on Object catch (error) {
+      if (mounted) _showError(context, 'Bluetooth message failed: $error');
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final bluetooth = widget.controller.bluetooth;
+    final devices = bluetooth.devices;
+    return ListView(
+      padding: const EdgeInsets.only(bottom: 8),
+      children: <Widget>[
+        _PageHeading(
+          icon: Icons.bluetooth_rounded,
+          title: 'Bluetooth LE',
+          detail: 'Send encrypted messages and files directly to a paired nearby device.',
+          trailing: IconButton(
+            tooltip: bluetooth.isEnabled ? 'Stop Bluetooth' : 'Enable Bluetooth',
+            onPressed: _busy ? null : () => unawaited(_toggleBluetooth()),
+            icon: Icon(bluetooth.isEnabled ? Icons.bluetooth_disabled_rounded : Icons.bluetooth_rounded),
+          ),
+        ),
+        const SizedBox(height: 14),
+        _GlassPanel(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              Row(
+                children: <Widget>[
+                  Container(
+                    width: 9,
+                    height: 9,
+                    decoration: BoxDecoration(
+                      color: bluetooth.isAdvertising ? _mint : const Color(0xFFFFC977),
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                  const SizedBox(width: 9),
+                  Expanded(
+                    child: Text(bluetooth.status,
+                        style: const TextStyle(color: Color(0xFFE5EAF3), fontSize: 12, fontWeight: FontWeight.w700)),
+                  ),
+                  FilledButton.tonalIcon(
+                    onPressed: _busy ? null : () => unawaited(_enableOrScan()),
+                    icon: Icon(bluetooth.isScanning ? Icons.stop_rounded : Icons.radar_rounded, size: 17),
+                    label: Text(bluetooth.isScanning ? 'Stop scan' : 'Scan'),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              const Text(
+                'Bluetooth uses BLE (not Bluetooth Classic). Pair with the QR code first; the six-digit code remains part of the trust flow. Wi-Fi is much faster for large files.',
+                style: TextStyle(color: _muted, fontSize: 10, height: 1.45),
+              ),
+              if (_busy) ...<Widget>[
+                const SizedBox(height: 12),
+                LinearProgressIndicator(value: _progress == 0 ? null : _progress),
+                const SizedBox(height: 5),
+                Text('${(_progress * 100).round()}% sent',
+                    style: const TextStyle(color: _muted, fontSize: 10)),
+              ],
+            ],
+          ),
+        ),
+        const SizedBox(height: 13),
+        if (devices.isNotEmpty) ...<Widget>[
+          _GlassPanel(
+            child: TextField(
+              controller: _messageController,
+              enabled: !_busy,
+              decoration: const InputDecoration(
+                labelText: 'Bluetooth message',
+                hintText: 'Type a message to send to a scanned device',
+                prefixIcon: Icon(Icons.chat_bubble_outline_rounded),
+              ),
+              minLines: 1,
+              maxLines: 3,
+            ),
+          ),
+          const SizedBox(height: 12),
+        ],
+        if (devices.isEmpty)
+          const _GlassPanel(
+            child: _EmptyState(
+              icon: Icons.bluetooth_searching_rounded,
+              title: 'No Airbridge Bluetooth devices found',
+              detail: 'Enable Bluetooth on both devices, turn on Airbridge Bluetooth in Settings, then scan again.',
+            ),
+          )
+        else ...devices.map(
+          (device) => Padding(
+            padding: const EdgeInsets.only(bottom: 10),
+            child: _BluetoothDeviceCard(
+              device: device,
+              busy: _busy,
+              onSendFile: () => _sendFile(device),
+              onSendMessage: () => _sendMessage(device),
+            ),
+          ),
+        ),
+        const SizedBox(height: 3),
+        const _GlassPanel(
+          child: Text(
+            'Platform note: Bluetooth advertising/receiving is supported by Android, iOS, macOS, and Windows adapters. Linux supports BLE client mode, but peripheral/advertising support is still limited. BlueStacks Bluetooth passthrough depends on the host and emulator configuration.',
+            style: TextStyle(color: _muted, fontSize: 10, height: 1.5),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _toggleBluetooth() async {
+    try {
+      await widget.controller.updateSettings(
+        bluetoothEnabled: !widget.controller.settings.bluetoothEnabled,
+      );
+    } on Object catch (error) {
+      if (mounted) _showError(context, 'Bluetooth setting could not be changed: $error');
+    }
+  }
+}
+
+class _BluetoothDeviceCard extends StatelessWidget {
+  const _BluetoothDeviceCard({
+    required this.device,
+    required this.busy,
+    required this.onSendFile,
+    required this.onSendMessage,
+  });
+
+  final BleDevice device;
+  final bool busy;
+  final VoidCallback onSendFile;
+  final VoidCallback onSendMessage;
+
+  @override
+  Widget build(BuildContext context) => _GlassPanel(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            Row(
+              children: <Widget>[
+                const Icon(Icons.bluetooth_connected_rounded, color: _mint, size: 19),
+                const SizedBox(width: 9),
+                Expanded(
+                  child: Text(device.name?.isNotEmpty == true ? device.name! : 'Airbridge BLE device',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(color: Color(0xFFE5EAF3), fontSize: 12, fontWeight: FontWeight.w700)),
+                ),
+                if (device.rssi != null)
+                  Text('${device.rssi} dBm', style: const TextStyle(color: _muted, fontSize: 10)),
+              ],
+            ),
+            const SizedBox(height: 5),
+            Text('ID ${device.deviceId}',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(color: _muted, fontSize: 9)),
+            const SizedBox(height: 11),
+            Row(
+              children: <Widget>[
+                const Expanded(
+                  child: Text(
+                    'Send a message or file over an encrypted BLE link.',
+                    style: TextStyle(color: _muted, fontSize: 10),
+                  ),
+                ),
+                IconButton.filledTonal(
+                  tooltip: 'Send encrypted message',
+                  onPressed: busy ? null : onSendMessage,
+                  icon: const Icon(Icons.send_rounded, size: 17),
+                ),
+                const SizedBox(width: 5),
+                FilledButton.tonalIcon(
+                  onPressed: busy ? null : onSendFile,
+                  icon: const Icon(Icons.upload_file_rounded, size: 16),
+                  label: const Text('File'),
+                ),
+              ],
+            ),
+          ],
+        ),
+      );
+}
+
+class _TroubleshootingSection extends StatelessWidget {
+  const _TroubleshootingSection({required this.controller, required this.onPair});
+
+  final NodeController controller;
+  final VoidCallback onPair;
+
+  Future<void> _copyDiagnostics(BuildContext context) async {
+    final diagnostics = <String, Object?>{
+      'app': 'Airbridge',
+      'deviceId': controller.config.deviceId,
+      'deviceName': controller.config.deviceName,
+      'lifecycle': controller.lifecycle,
+      'localAddress': controller.localAddress,
+      'httpPort': controller.config.httpPort,
+      'udpPort': controller.config.udpPort,
+      'discoveredPeers': controller.peers.length,
+      'trustedPeers': controller.trustedPeers.length,
+      'connectedPeers': controller.connectedPeerCount,
+      'bluetoothEnabled': controller.bluetooth.isEnabled,
+      'bluetoothStatus': controller.bluetooth.status,
+      'logs': controller.logs.take(60).map((entry) => entry.toJson()).toList(),
+    };
+    await Clipboard.setData(
+      ClipboardData(text: const JsonEncoder.withIndent('  ').convert(diagnostics)),
+    );
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Copied diagnostics without pairing keys or message contents.')),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final online = controller.isRunning;
+    final hasAddress = controller.localAddress != 'Unavailable' &&
+        controller.localAddress != 'Resolving…';
+    final paired = controller.trustedPeers.isNotEmpty || controller.hasSharedSecret;
+    return ListView(
+      padding: const EdgeInsets.only(bottom: 8),
+      children: <Widget>[
+        _PageHeading(
+          icon: Icons.build_circle_outlined,
+          title: 'Troubleshooting',
+          detail: 'Quick diagnostics for discovery, pairing, file delivery, and Bluetooth.',
+          trailing: IconButton(
+            tooltip: 'Copy diagnostics',
+            onPressed: () => unawaited(_copyDiagnostics(context)),
+            icon: const Icon(Icons.content_copy_rounded),
+          ),
+        ),
+        const SizedBox(height: 15),
+        _GlassPanel(
+          child: Column(
+            children: <Widget>[
+              _DiagnosticRow(
+                ok: online,
+                title: 'Airbridge node',
+                detail: online ? 'Online and listening on port ${controller.config.httpPort}.' : 'Node status: ${controller.lifecycle}.',
+              ),
+              const Divider(height: 20, color: _border),
+              _DiagnosticRow(
+                ok: hasAddress,
+                title: 'Local network address',
+                detail: hasAddress ? '${controller.localAddress}:${controller.config.httpPort}' : 'Join the same Wi-Fi/LAN, then retry the node.',
+              ),
+              const Divider(height: 20, color: _border),
+              _DiagnosticRow(
+                ok: paired,
+                title: 'Peer trust',
+                detail: paired ? '${controller.trustedPeers.length} QR-paired trusted devices.' : 'Pair both devices using the QR invitation and compare the six-digit code.',
+              ),
+              const Divider(height: 20, color: _border),
+              _DiagnosticRow(
+                ok: controller.connectedPeerCount > 0,
+                title: 'Mesh link',
+                detail: '${controller.connectedPeerCount} linked · ${controller.peers.length} discovered. Allow TCP ${controller.config.httpPort} and UDP ${controller.config.udpPort} through local firewalls.',
+              ),
+              const Divider(height: 20, color: _border),
+              _DiagnosticRow(
+                ok: controller.bluetooth.isEnabled,
+                title: 'Bluetooth LE',
+                detail: controller.bluetooth.status,
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 13),
+        _GlassPanel(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              const _PanelHeading(
+                icon: Icons.tips_and_updates_outlined,
+                title: 'Common fixes',
+                detail: 'Try these before pairing again.',
+              ),
+              const SizedBox(height: 12),
+              const _InfoBullet(text: 'Put both devices on the same reachable LAN. Guest Wi-Fi, VPNs, and router client isolation can block discovery.'),
+              const _InfoBullet(text: 'Allow Airbridge through the Windows firewall for private networks. Keep TCP and UDP ports matched on both devices.'),
+              const _InfoBullet(text: 'If pairing fails, create a fresh QR. Invitations expire after five minutes and can only be used once.'),
+              const _InfoBullet(text: 'For a failed file transfer, check receiver auto-accept, free disk space, and the maximum file-size setting.'),
+              const _InfoBullet(text: 'Bluetooth transfers use BLE and require both adapters to support the Airbridge GATT service; use LAN for larger files.'),
+              const SizedBox(height: 12),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: <Widget>[
+                  FilledButton.tonalIcon(
+                    onPressed: online ? () => unawaited(controller.start()) : null,
+                    icon: const Icon(Icons.refresh_rounded, size: 17),
+                    label: const Text('Retry node'),
+                  ),
+                  OutlinedButton.icon(
+                    onPressed: online ? onPair : null,
+                    icon: const Icon(Icons.qr_code_2_rounded, size: 17),
+                    label: const Text('Pair with QR'),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _DiagnosticRow extends StatelessWidget {
+  const _DiagnosticRow({required this.ok, required this.title, required this.detail});
+
+  final bool ok;
+  final String title;
+  final String detail;
+
+  @override
+  Widget build(BuildContext context) => Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Icon(ok ? Icons.check_circle_rounded : Icons.warning_amber_rounded,
+              color: ok ? _mint : const Color(0xFFFFC977), size: 18),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                Text(title, style: const TextStyle(color: Color(0xFFE5EAF3), fontSize: 11, fontWeight: FontWeight.w700)),
+                const SizedBox(height: 3),
+                Text(detail, style: const TextStyle(color: _muted, fontSize: 10, height: 1.4)),
+              ],
+            ),
+          ),
+        ],
+      );
+}
+
+class _DocsSection extends StatelessWidget {
+  const _DocsSection();
+
+  @override
+  Widget build(BuildContext context) => ListView(
+        padding: const EdgeInsets.only(bottom: 8),
+        children: const <Widget>[
+          _PageHeading(
+            icon: Icons.menu_book_outlined,
+            title: 'Airbridge docs',
+            detail: 'A short guide to pairing, data transfer, and security.',
+          ),
+          SizedBox(height: 15),
+          _DocCard(
+            icon: Icons.qr_code_2_rounded,
+            title: '1. Pair devices',
+            bullets: <String>[
+              'Put the devices on a reachable local network and start Airbridge on both.',
+              'On one device choose Pair a device; scan the one-time QR from the other.',
+              'Compare the six-digit verification code, then confirm. No account or password is required.',
+            ],
+          ),
+          SizedBox(height: 12),
+          _DocCard(
+            icon: Icons.forum_outlined,
+            title: '2. Send messages and data',
+            bullets: <String>[
+              'Messages accepts text or JSON and broadcasts to connected trusted mesh peers.',
+              'Files sends directly to a paired peer. The receiver verifies the file length and SHA-256 digest before showing it.',
+              'Received files are kept in the Airbridge application data folder; use Save a copy to export one.',
+            ],
+          ),
+          SizedBox(height: 12),
+          _DocCard(
+            icon: Icons.bluetooth_rounded,
+            title: '3. Bluetooth LE',
+            bullets: <String>[
+              'Enable Bluetooth in Settings, then scan from the Bluetooth tab. Pair with QR before transferring.',
+              'Bluetooth uses BLE GATT, not Bluetooth Classic. Lower throughput makes LAN preferable for large files.',
+              'Android, iOS, macOS, and Windows can advertise/receive when the adapter and OS permit it. Linux peripheral support is limited.',
+            ],
+          ),
+          SizedBox(height: 12),
+          _DocCard(
+            icon: Icons.lock_outline_rounded,
+            title: '4. Encryption and trust',
+            bullets: <String>[
+              'Paired peer message envelopes, file names/metadata, and file chunks use per-peer AES-256-GCM encryption in transit.',
+              'HMAC-SHA256 authenticates paired HTTP requests and WebSocket handshakes; replayed HTTP nonces are rejected.',
+              'LAN discovery and basic node status are local control data. Do not expose Airbridge ports to the public internet.',
+            ],
+          ),
+        ],
+      );
+}
+
+class _DocCard extends StatelessWidget {
+  const _DocCard({required this.icon, required this.title, required this.bullets});
+
+  final IconData icon;
+  final String title;
+  final List<String> bullets;
+
+  @override
+  Widget build(BuildContext context) => _GlassPanel(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            _PanelHeading(icon: icon, title: title, detail: ''),
+            const SizedBox(height: 10),
+            ...bullets.map((bullet) => _InfoBullet(text: bullet)),
+          ],
+        ),
+      );
+}
+
+class _InfoBullet extends StatelessWidget {
+  const _InfoBullet({required this.text});
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+        padding: const EdgeInsets.only(bottom: 8),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            const Padding(
+              padding: EdgeInsets.only(top: 5),
+              child: Icon(Icons.circle, color: _mint, size: 5),
+            ),
+            const SizedBox(width: 9),
+            Expanded(
+              child: Text(text, style: const TextStyle(color: _muted, fontSize: 10, height: 1.45)),
+            ),
+          ],
+        ),
+      );
+}
+
+class _SettingsSection extends StatefulWidget {
+  const _SettingsSection({required this.controller});
+
+  final NodeController controller;
+
+  @override
+  State<_SettingsSection> createState() => _SettingsSectionState();
+}
+
+class _SettingsSectionState extends State<_SettingsSection> {
+  late final TextEditingController _nameController;
+  late double _maxFileSizeMb;
+  bool _savingName = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _nameController = TextEditingController(text: widget.controller.settings.deviceName);
+    _maxFileSizeMb = widget.controller.settings.maxIncomingFileBytes / (1024 * 1024);
+  }
+
+  @override
+  void dispose() {
+    _nameController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _saveName() async {
+    if (_savingName) return;
+    setState(() => _savingName = true);
+    try {
+      await widget.controller.updateSettings(deviceName: _nameController.text);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Device name saved.')),
+        );
+      }
+    } on Object catch (error) {
+      if (mounted) _showError(context, 'Could not save device name: $error');
+    } finally {
+      if (mounted) setState(() => _savingName = false);
+    }
+  }
+
+  Future<void> _setBluetooth(bool value) async {
+    try {
+      await widget.controller.updateSettings(bluetoothEnabled: value);
+    } on Object catch (error) {
+      if (mounted) _showError(context, 'Bluetooth could not be changed: $error');
+    }
+  }
+
+  Future<void> _setAutoAccept(bool value) async {
+    try {
+      await widget.controller.updateSettings(autoAcceptFiles: value);
+    } on Object catch (error) {
+      if (mounted) _showError(context, 'File setting could not be saved: $error');
+    }
+  }
+
+  Future<void> _setMaxFileSize(double value) async {
+    final bytes = (value.round() * 1024 * 1024);
+    try {
+      await widget.controller.updateSettings(maxIncomingFileBytes: bytes);
+      if (mounted) setState(() => _maxFileSizeMb = value);
+    } on Object catch (error) {
+      if (mounted) _showError(context, 'File-size limit could not be saved: $error');
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final settings = widget.controller.settings;
+    return ListView(
+      padding: const EdgeInsets.only(bottom: 8),
+      children: <Widget>[
+        const _PageHeading(
+          icon: Icons.settings_outlined,
+          title: 'Settings',
+          detail: 'A few practical controls for how this device joins and receives data.',
+        ),
+        const SizedBox(height: 15),
+        _GlassPanel(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              const _PanelHeading(
+                icon: Icons.badge_outlined,
+                title: 'This device',
+                detail: 'Shown to trusted peers during discovery and pairing.',
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: <Widget>[
+                  Expanded(
+                    child: TextField(
+                      controller: _nameController,
+                      maxLength: 64,
+                      onSubmitted: (_) => unawaited(_saveName()),
+                      decoration: const InputDecoration(
+                        labelText: 'Device name',
+                        counterText: '',
+                        prefixIcon: Icon(Icons.devices_rounded),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  FilledButton(
+                    onPressed: _savingName ? null : _saveName,
+                    child: _savingName
+                        ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                        : const Text('Save'),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              SelectableText('Device ID  ${widget.controller.config.deviceId}',
+                  style: const TextStyle(color: _muted, fontSize: 10)),
+            ],
+          ),
+        ),
+        const SizedBox(height: 13),
+        _GlassPanel(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              const _PanelHeading(
+                icon: Icons.shield_outlined,
+                title: 'Transport security',
+                detail: 'Encryption is always on for paired-peer content.',
+              ),
+              const SizedBox(height: 10),
+              const _InfoBullet(text: 'AES-256-GCM protects message bodies, file names/metadata, and every file chunk while in transit.'),
+              const _InfoBullet(text: 'HMAC-SHA256 verifies trusted HTTP writes and mesh handshakes. Cleartext writes are rejected.'),
+              const _InfoBullet(text: 'This security control is mandatory; there is no “send unencrypted” switch.'),
+            ],
+          ),
+        ),
+        const SizedBox(height: 13),
+        _GlassPanel(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              const _PanelHeading(
+                icon: Icons.bluetooth_rounded,
+                title: 'Bluetooth LE',
+                detail: 'Optional nearby transfer transport.',
+              ),
+              SwitchListTile.adaptive(
+                contentPadding: EdgeInsets.zero,
+                value: settings.bluetoothEnabled,
+                onChanged: (value) => unawaited(_setBluetooth(value)),
+                title: const Text('Enable Bluetooth transfers', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700)),
+                subtitle: Text(widget.controller.bluetooth.status, style: const TextStyle(color: _muted, fontSize: 10)),
+                activeColor: _mint,
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 13),
+        _GlassPanel(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              const _PanelHeading(
+                icon: Icons.move_to_inbox_outlined,
+                title: 'Incoming files',
+                detail: 'Trusted peers only. Files are verified before they are listed.',
+              ),
+              SwitchListTile.adaptive(
+                contentPadding: EdgeInsets.zero,
+                value: settings.autoAcceptFiles,
+                onChanged: (value) => unawaited(_setAutoAccept(value)),
+                title: const Text('Accept files from paired peers', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700)),
+                subtitle: const Text('Turn this off to reject new file transfers.', style: TextStyle(color: _muted, fontSize: 10)),
+                activeColor: _mint,
+              ),
+              const SizedBox(height: 4),
+              Row(
+                children: <Widget>[
+                  const Expanded(
+                    child: Text('Maximum file size', style: TextStyle(color: Color(0xFFE5EAF3), fontSize: 11, fontWeight: FontWeight.w700)),
+                  ),
+                  Text('${_maxFileSizeMb.round()} MB', style: const TextStyle(color: _mint, fontSize: 11, fontWeight: FontWeight.w800)),
+                ],
+              ),
+              Slider(
+                value: _maxFileSizeMb.clamp(1, 1024).toDouble(),
+                min: 1,
+                max: 1024,
+                divisions: 1023,
+                label: '${_maxFileSizeMb.round()} MB',
+                onChanged: (value) => setState(() => _maxFileSizeMb = value),
+                onChangeEnd: (value) => unawaited(_setMaxFileSize(value)),
+                activeColor: _mint,
+              ),
+              const SizedBox(height: 4),
+              Row(
+                children: <Widget>[
+                  Expanded(
+                    child: Text(
+                      'Received files folder\n${widget.controller.receivedFilesDirectory}',
+                      style: const TextStyle(color: _muted, fontSize: 9, height: 1.4),
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: 'Copy folder path',
+                    onPressed: () async {
+                      await Clipboard.setData(ClipboardData(text: widget.controller.receivedFilesDirectory));
+                      if (!context.mounted) return;
+                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Copied folder path.')));
+                    },
+                    icon: const Icon(Icons.content_copy_rounded, size: 17),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+Future<_PickedLocalFile?> _pickLocalFile() async {
+  final selected = await FilePicker.pickFile(dialogTitle: 'Choose a file to send');
+  if (selected == null) return null;
+  final path = selected.path;
+  if (path != null && await File(path).exists()) {
+    return _PickedLocalFile(path: path);
+  }
+  final expectedLength = await selected.length();
+  if (expectedLength != null && expectedLength > maxSupportedIncomingFileBytes) {
+    throw const FileTransferException('Files larger than 1 GiB are not supported.');
+  }
+  final directory = await Directory.systemTemp.createTemp('airbridge-outgoing-');
+  final selectedName = selected.name
+      .replaceAll(String.fromCharCode(92), '/')
+      .split('/')
+      .last;
+  final sanitizedName = selectedName
+      .replaceAll(RegExp(r'[\x00-\x1F\x7F]'), '_')
+      .replaceAll(RegExp(r'[:*?"<>|]'), '_')
+      .trim();
+  final safeName = sanitizedName.isEmpty || sanitizedName == '.' || sanitizedName == '..'
+      ? 'outgoing-file'
+      : sanitizedName;
+  final file = File('${directory.path}${Platform.pathSeparator}$safeName');
+  try {
+    final sink = file.openWrite();
+    var copiedBytes = 0;
+    try {
+      await for (final chunk in selected.readAsByteStream()) {
+        copiedBytes += chunk.length;
+        if (copiedBytes > maxSupportedIncomingFileBytes) {
+          throw const FileTransferException('Files larger than 1 GiB are not supported.');
+        }
+        sink.add(chunk);
+      }
+      await sink.flush();
+    } finally {
+      await sink.close();
+    }
+    if (expectedLength != null && copiedBytes != expectedLength) {
+      throw const FileTransferException('The selected file changed while it was being prepared.');
+    }
+    return _PickedLocalFile(path: file.path, temporaryDirectory: directory);
+  } on Object {
+    if (await directory.exists()) await directory.delete(recursive: true);
+    rethrow;
+  }
+}
+
+class _PickedLocalFile {
+  const _PickedLocalFile({required this.path, this.temporaryDirectory});
+
+  final String path;
+  final Directory? temporaryDirectory;
+
+  Future<void> cleanup() async {
+    final directory = temporaryDirectory;
+    if (directory != null && await directory.exists()) {
+      await directory.delete(recursive: true);
+    }
+  }
+}
+
+void _showError(BuildContext context, String message) {
+  ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+}
+
 class _NodeHeader extends StatelessWidget {
   const _NodeHeader({required this.controller});
 
@@ -1190,11 +2335,9 @@ class _TerminalPanel extends StatelessWidget {
                 const SizedBox(width: 7),
                 Expanded(
                   child: Text(
-                    controller.hasSharedSecret
-                        ? 'AES-256-GCM payloads  •  HMAC-authenticated mesh'
-                        : 'QR pairing required  •  payloads are cleartext',
-                    style: TextStyle(
-                      color: controller.hasSharedSecret ? _mint : const Color(0xFFFFC977),
+                    'AES-256-GCM encrypted peer links  •  HMAC-authenticated',
+                    style: const TextStyle(
+                      color: _mint,
                       fontSize: 11,
                     ),
                   ),
@@ -1760,6 +2903,15 @@ class _GlassPanel extends StatelessWidget {
         ),
         child: child,
       );
+}
+
+String _formatBytes(int value) {
+  if (value < 1024) return '$value B';
+  if (value < 1024 * 1024) return '${(value / 1024).toStringAsFixed(1)} KB';
+  if (value < 1024 * 1024 * 1024) {
+    return '${(value / (1024 * 1024)).toStringAsFixed(1)} MB';
+  }
+  return '${(value / (1024 * 1024 * 1024)).toStringAsFixed(1)} GB';
 }
 
 String _formatTime(DateTime timestamp) {
