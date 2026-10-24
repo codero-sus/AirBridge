@@ -28,22 +28,39 @@ void _resetTestViewport(WidgetTester tester) {
     ..resetDevicePixelRatio();
 }
 
+Future<NodeController> _pumpDesktopDashboard(WidgetTester tester) async {
+  final controller = _newController();
+  addTearDown(() async {
+    await tester.pumpWidget(const SizedBox.shrink());
+    controller.dispose();
+    _resetTestViewport(tester);
+  });
+
+  _setTestViewport(tester, const Size(1280, 900));
+  await tester.pumpWidget(
+    MaterialApp(home: DashboardPage(controller: controller)),
+  );
+  await tester.pumpAndSettle();
+  return controller;
+}
+
+Future<void> _expectDesktopSection(
+  WidgetTester tester, {
+  required String label,
+  required String sectionTitle,
+}) async {
+  await _pumpDesktopDashboard(tester);
+  expect(find.text('WORKSPACE'), findsOneWidget);
+  await tester.tap(find.text(label).first);
+  await tester.pumpAndSettle();
+  expect(find.text(sectionTitle), findsOneWidget);
+}
+
 void main() {
   testWidgets('desktop sidebar switches between dashboard sections', (
     tester,
   ) async {
-    final controller = _newController();
-    addTearDown(() async {
-      await tester.pumpWidget(const SizedBox.shrink());
-      controller.dispose();
-      _resetTestViewport(tester);
-    });
-
-    _setTestViewport(tester, const Size(1280, 900));
-    await tester.pumpWidget(
-      MaterialApp(home: DashboardPage(controller: controller)),
-    );
-    await tester.pumpAndSettle();
+    await _pumpDesktopDashboard(tester);
 
     expect(find.text('WORKSPACE'), findsOneWidget);
     await tester.tap(find.text('Messages'));
@@ -59,26 +76,46 @@ void main() {
       find.text('Recent startup, discovery, pairing, and delivery events.'),
       findsOneWidget,
     );
+  });
 
-    await tester.tap(find.text('Files').first);
-    await tester.pumpAndSettle();
-    expect(find.text('File transfers'), findsOneWidget);
+  testWidgets('desktop sidebar opens Files', (tester) async {
+    await _expectDesktopSection(
+      tester,
+      label: 'Files',
+      sectionTitle: 'File transfers',
+    );
+  });
 
-    await tester.tap(find.text('Bluetooth').first);
-    await tester.pumpAndSettle();
-    expect(find.text('Bluetooth LE'), findsOneWidget);
+  testWidgets('desktop sidebar opens Bluetooth', (tester) async {
+    await _expectDesktopSection(
+      tester,
+      label: 'Bluetooth',
+      sectionTitle: 'Bluetooth LE',
+    );
+  });
 
-    await tester.tap(find.text('Troubleshooting').first);
-    await tester.pumpAndSettle();
-    expect(find.text('Quick diagnostics for discovery, pairing, file delivery, and Bluetooth.'), findsOneWidget);
+  testWidgets('desktop sidebar opens Troubleshooting', (tester) async {
+    await _expectDesktopSection(
+      tester,
+      label: 'Troubleshooting',
+      sectionTitle: 'Quick diagnostics for discovery, pairing, file delivery, and Bluetooth.',
+    );
+  });
 
-    await tester.tap(find.text('Docs').first);
-    await tester.pumpAndSettle();
-    expect(find.text('Airbridge docs'), findsOneWidget);
+  testWidgets('desktop sidebar opens Docs', (tester) async {
+    await _expectDesktopSection(
+      tester,
+      label: 'Docs',
+      sectionTitle: 'Airbridge docs',
+    );
+  });
 
-    await tester.tap(find.text('Settings').first);
-    await tester.pumpAndSettle();
-    expect(find.text('Transport security'), findsOneWidget);
+  testWidgets('desktop sidebar opens Settings', (tester) async {
+    await _expectDesktopSection(
+      tester,
+      label: 'Settings',
+      sectionTitle: 'Transport security',
+    );
   });
 
   testWidgets('mobile drawer navigates to the peer list', (tester) async {
