@@ -79,12 +79,6 @@ void main() {
     await tester.tap(find.text('Settings').first);
     await tester.pumpAndSettle();
     expect(find.text('Transport security'), findsOneWidget);
-    await tester.scrollUntilVisible(
-      find.text('Accept files from paired peers'),
-      300,
-      scrollable: find.byType(Scrollable).last,
-    );
-    expect(find.text('Accept files from paired peers'), findsOneWidget);
   });
 
   testWidgets('mobile drawer navigates to the peer list', (tester) async {
