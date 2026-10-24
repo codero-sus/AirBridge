@@ -141,14 +141,14 @@ The `777+` request is being treated as a multi-release engineering program, not 
 
 ## Wave 9 — Encrypted transfers, Bluetooth, and user controls (114–121)
 
-- [ ] **114** Seal paired-peer WebSocket messages and HTTP writes with per-peer AES-256-GCM; reject cleartext and replayed HTTP requests.
-- [ ] **115** Add authenticated chunked LAN file transfer with bounded receive size, safe file names, verified length/SHA-256, and a received-file index.
-- [ ] **116** Add file selection/send, receive listing, Save As export, progress, and copyable storage paths.
-- [ ] **117** Add BLE scanning/GATT message and chunked-file transports using the established QR-pairing key; document OS/adapter limitations.
-- [ ] **118** Persist device name, Bluetooth state, incoming-file acceptance, and the configurable receive cap in Settings.
-- [ ] **119** Add visible Troubleshooting and Docs sections, actionable diagnostics, and security caveats.
-- [ ] **120** Add focused AES-GCM, file-store, encrypted HTTP/WebSocket, settings, and navigation tests; validate with Flutter analyze, tests, and platform builds in CI.
-- [ ] **121** Verify real-device transfers across Android/Windows, iOS/macOS, and Linux BLE limitations; protect the confirmed BlueStacks-to-Windows LAN pairing path.
+- [x] **114** Seal paired-peer WebSocket messages and HTTP writes with per-peer AES-256-GCM; reject cleartext and replayed HTTP requests.
+- [x] **115** Add authenticated chunked LAN file transfer with bounded receive size, safe file names, verified length/SHA-256, and a received-file index.
+- [x] **116** Add file selection/send, receive listing, Save As export, progress, and copyable storage paths.
+- [x] **117** Add BLE scanning/GATT message and chunked-file transports using the established QR-pairing key; document OS/adapter limitations.
+- [x] **118** Persist device name, Bluetooth state, incoming-file acceptance, and the configurable receive cap in Settings.
+- [x] **119** Add visible Troubleshooting and Docs sections, actionable diagnostics, and security caveats.
+- [x] **120** Add focused AES-GCM, file-store, encrypted HTTP/WebSocket, settings, and navigation tests; validate with Flutter analyze, tests, and platform builds in CI (run `40083540267` passed).
+- [ ] **121** Verify real-device transfers across Android/Windows, iOS/macOS, and Linux BLE limitations; protect the confirmed BlueStacks-to-Windows LAN pairing path. New BLE hardware tests remain pending; CI verifies the cross-platform builds, not physical adapters or emulator BLE passthrough.
 
 ## Delivery rules
 
