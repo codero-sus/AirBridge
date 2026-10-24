@@ -127,7 +127,9 @@ class NodeConfig {
         deviceName = '';
       }
     }
-    if (deviceName.isEmpty) deviceName = 'Airbridge node';
+    if (deviceName.isEmpty || deviceName.toLowerCase() == 'localhost') {
+      deviceName = Platform.isAndroid ? 'Android device' : 'Airbridge node';
+    }
     if (deviceName.length > 64) deviceName = deviceName.substring(0, 64);
 
     final messageDirectory = Directory(

@@ -38,5 +38,11 @@ Source: "{#BuildDirectory}\*"; DestDir: "{app}"; Flags: ignoreversion recursesub
 Name: "{autoprograms}\Airbridge"; Filename: "{app}\airbridge_mobile.exe"; WorkingDir: "{app}"
 Name: "{autodesktop}\Airbridge"; Filename: "{app}\airbridge_mobile.exe"; WorkingDir: "{app}"; Tasks: desktopicon
 
+[Registry]
+Root: HKCR; Subkey: "airbridge"; ValueType: string; ValueName: ""; ValueData: "URL:Airbridge Protocol"; Flags: uninsdeletekey
+Root: HKCR; Subkey: "airbridge"; ValueType: string; ValueName: "URL Protocol"; ValueData: ""; Flags: uninsdeletevalue
+Root: HKCR; Subkey: "airbridge\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: """{app}\airbridge_mobile.exe"",0"
+Root: HKCR; Subkey: "airbridge\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\airbridge_mobile.exe"" ""%1"""
+
 [Run]
 Filename: "{app}\airbridge_mobile.exe"; Description: "Launch Airbridge"; Flags: postinstall nowait skipifsilent

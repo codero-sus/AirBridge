@@ -69,6 +69,13 @@ void main() {
     );
 
     final parsed = PairingInvitation.parse(invitation.qrPayload);
+    final parsedWithUppercaseAuthority = PairingInvitation.parse(
+      invitation.qrPayload.replaceFirst(
+        'airbridge://pair',
+        'AIRBRIDGE://PAIR',
+      ),
+    );
+    expect(parsedWithUppercaseAuthority.hostDeviceId, _hostId);
     expect(parsed.hostDeviceId, _hostId);
     expect(parsed.hostDeviceName, 'QR host');
     expect(parsed.secret, invitation.secret);

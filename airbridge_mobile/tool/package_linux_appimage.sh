@@ -72,11 +72,12 @@ cat > "$APPDIR/airbridge.desktop" <<'EOF'
 [Desktop Entry]
 Name=Airbridge
 Comment=Discover and connect to Airbridge peers on your local network
-Exec=airbridge_mobile
+Exec=airbridge_mobile %u
 Icon=airbridge
 Terminal=false
 Type=Application
 Categories=Network;Utility;
+MimeType=x-scheme-handler/airbridge;
 StartupWMClass=airbridge_mobile
 EOF
 
