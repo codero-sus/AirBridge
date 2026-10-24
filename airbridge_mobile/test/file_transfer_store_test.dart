@@ -24,7 +24,7 @@ void main() {
 
   test('assembles, verifies, and persists an incoming file', () async {
     const contents = <int>[1, 3, 5, 7, 9, 11];
-    const transferId = 'transfer-0001';
+    const transferId = 'deadbeef0001';
     await store.beginTransfer(
       transferId: transferId,
       fileName: r'folder\report.bin',
@@ -51,7 +51,7 @@ void main() {
   });
 
   test('rejects wrong chunk ordering and failed file integrity', () async {
-    const transferId = 'transfer-0002';
+    const transferId = 'deadbeef0002';
     await store.beginTransfer(
       transferId: transferId,
       fileName: 'broken.txt',
@@ -78,7 +78,7 @@ void main() {
     store.maxIncomingFileBytes = 2;
     await expectLater(
       store.beginTransfer(
-        transferId: 'transfer-0003',
+        transferId: 'deadbeef0003',
         fileName: 'large.bin',
         sizeBytes: 3,
         sha256Hex: sha256.convert(<int>[]).toString(),
