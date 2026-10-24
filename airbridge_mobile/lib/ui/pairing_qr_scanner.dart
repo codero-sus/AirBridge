@@ -96,6 +96,7 @@ class _MobilePairingQrScannerPageState extends State<_MobilePairingQrScannerPage
     } on Object catch (error) {
       debugPrint('Could not pause the native camera before fallback: $error');
     }
+    if (!mounted) return;
     final payload = await Navigator.of(context).push<String>(
       MaterialPageRoute<String>(
         builder: (_) => const _DesktopPairingQrScannerPage(),

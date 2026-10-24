@@ -64,7 +64,7 @@ class _AirbridgeAppState extends State<AirbridgeApp> {
       await _startup;
       if (!mounted) return;
       final context = _navigatorKey.currentContext;
-      if (context == null) {
+      if (context == null || !context.mounted) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
           unawaited(_presentQueuedPairingLink());
         });
