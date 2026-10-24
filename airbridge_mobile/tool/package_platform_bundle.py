@@ -80,6 +80,19 @@ def create_bundle(source_dir: Path, output_path: Path) -> None:
             bundle.write(path, arcname=path.name)
         bundle.writestr("SHA256SUMS.txt", manifest)
 
+    with ZipFile(output_path, "r") as bundle:
+        corrupt_entry = bundle.testzip()
+        if corrupt_entry is not None:
+            raise ValueError(f"Generated ZIP contains a corrupt entry: {corrupt_entry}")
+        encrypted_entries = [
+            info.filename for info in bundle.infolist() if info.flag_bits & 0x1
+        ]
+        if encrypted_entries:
+            raise ValueError(
+                "Generated ZIP must be unencrypted; found encrypted entries: "
+                + ", ".join(encrypted_entries)
+            )
+
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)

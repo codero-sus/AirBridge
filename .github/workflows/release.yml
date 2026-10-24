@@ -297,11 +297,10 @@ jobs:
       - name: Upload the all-platforms ZIP as a workflow artifact
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
         with:
-          name: airbridge-release-all-platforms
           path: ${{ runner.temp }}/Airbridge-All-Platforms.zip
+          archive: false
           if-no-files-found: error
           retention-days: 7
-          compression-level: 0
 
       - name: Publish stable or pre-release with generated notes
         shell: bash
