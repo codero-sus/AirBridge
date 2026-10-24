@@ -3,7 +3,8 @@ import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart' show Hmac, sha256;
-import 'package:cryptography/cryptography.dart';
+import 'package:cryptography/cryptography.dart'
+    show AesGcm, Mac, SecretBox, SecretBoxAuthenticationError, SecretKey;
 
 final RegExp _sha256HexPattern = RegExp(r'^[0-9a-fA-F]{64}$');
 

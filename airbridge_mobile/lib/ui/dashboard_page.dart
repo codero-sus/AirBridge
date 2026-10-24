@@ -1112,7 +1112,7 @@ class _FilesSectionState extends State<_FilesSection> {
                 )
               else ...<Widget>[
                 DropdownButtonFormField<String>(
-                  value: selected,
+                  initialValue: selected,
                   isExpanded: true,
                   decoration: const InputDecoration(
                     labelText: 'Send to paired device',
@@ -1960,7 +1960,7 @@ class _SettingsSectionState extends State<_SettingsSection> {
                 onChanged: (value) => unawaited(_setBluetooth(value)),
                 title: const Text('Enable Bluetooth transfers', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700)),
                 subtitle: Text(widget.controller.bluetooth.status, style: const TextStyle(color: _muted, fontSize: 10)),
-                activeColor: _mint,
+                activeThumbColor: _mint,
               ),
             ],
           ),
@@ -1981,7 +1981,7 @@ class _SettingsSectionState extends State<_SettingsSection> {
                 onChanged: (value) => unawaited(_setAutoAccept(value)),
                 title: const Text('Accept files from paired peers', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700)),
                 subtitle: const Text('Turn this off to reject new file transfers.', style: TextStyle(color: _muted, fontSize: 10)),
-                activeColor: _mint,
+                activeThumbColor: _mint,
               ),
               const SizedBox(height: 4),
               Row(
