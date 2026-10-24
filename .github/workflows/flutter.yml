@@ -46,7 +46,9 @@ jobs:
           import sys
 
           lines = pathlib.Path(sys.argv[1]).read_text(errors="replace").splitlines()
-          details = "\n".join(lines[-40:])
+          markers = ("version solving failed", "because ", "error:", "err :", "failed to", "could not")
+          matches = [line for line in lines if any(marker in line.lower() for marker in markers)]
+          details = "\n".join(matches[-60:] if matches else lines[-100:])
           escaped = details.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
           print("::error title=Flutter dependency resolution failed::" + escaped)
           PY
