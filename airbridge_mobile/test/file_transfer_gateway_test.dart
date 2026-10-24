@@ -20,10 +20,17 @@ Future<int> _availablePort() async {
 }
 
 Future<void> _withDirectHttp(Future<void> Function() body) {
+  final overrides = _DirectHttpOverrides();
   return HttpOverrides.runZoned(
     body,
-    createHttpClient: (context) => HttpClient()..findProxy = (_) => 'DIRECT',
+    createHttpClient: overrides.createHttpClient,
   );
+}
+
+class _DirectHttpOverrides extends HttpOverrides {
+  @override
+  HttpClient createHttpClient(SecurityContext? context) =>
+      super.createHttpClient(context)..findProxy = (_) => 'DIRECT';
 }
 
 void main() {
