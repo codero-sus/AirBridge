@@ -159,12 +159,14 @@ On Debian/Ubuntu, for example:
 
 ```bash
 sudo apt-get update
-sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev patchelf desktop-file-utils xdg-utils curl libfuse2 imagemagick
+sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev patchelf desktop-file-utils xdg-utils curl libfuse2 imagemagick bluez
 cd airbridge_mobile
 flutter build linux --release
 ```
 
-The full Flutter bundle is under `build/linux/x64/release/bundle/`. To package a directly launchable x86_64 AppImage (no ZIP), run:
+The full Flutter bundle is under `build/linux/x64/release/bundle/`. Linux uses the BlueZ D-Bus backend to implement the same Airbridge GATT service and encrypted packet protocol used by the other supported platforms. Make sure the system D-Bus and BlueZ Bluetooth service are running, and power on an LE-capable adapter (check with `bluetoothctl show`; enable it with `bluetoothctl power on`). The app runs as the desktop user; do not run the GUI as root. To enable the service at boot, run `sudo systemctl enable --now bluetooth`. For central connections to dual-mode Apple BLE peers, BlueZ may require `ControllerMode = le` in `/etc/bluetooth/main.conf`; see Troubleshooting below.
+
+To package a directly launchable x86_64 AppImage (no ZIP), run:
 
 ```bash
 ./tool/package_linux_appimage.sh ./build/release
@@ -313,7 +315,7 @@ Confirm the peer was QR-paired, **Accept files from paired peers** is enabled on
 
 ### Bluetooth scan or transfer fails
 
-Enable Bluetooth in Settings on both devices, grant Bluetooth permissions, keep the Bluetooth tab open to scan, and pair the devices using the normal QR/six-digit flow first. Bluetooth LE is not Bluetooth Classic. Confirm both adapters support the Airbridge GATT service; Linux currently cannot receive as a BLE peripheral, so use Wi-Fi/LAN for Linux receivers. BlueStacks Bluetooth pass-through varies by emulator and host; the demonstrated BlueStacks-to-Windows connection should continue over Wi-Fi/LAN even when emulator BLE is unavailable.
+Enable Bluetooth in Settings on both devices, grant Bluetooth permissions, keep the Bluetooth tab open to scan, and pair the devices using the normal QR/six-digit flow first. Bluetooth LE is not Bluetooth Classic. Confirm both adapters support BLE. On Linux, check `systemctl is-active bluetooth`, `bluetoothctl show`, and `bluetoothctl power on`; Airbridge uses BlueZ over the system D-Bus for GATT advertising and receiving. If Linux central connections to dual-mode Apple peers fail, add `[General]` and `ControllerMode = le` to `/etc/bluetooth/main.conf`, then run `sudo systemctl restart bluetooth`. BlueStacks Bluetooth pass-through varies by emulator and host; the demonstrated BlueStacks-to-Windows connection should continue over Wi-Fi/LAN even when emulator BLE is unavailable.
 
 ### Port already in use / node fails to start
 

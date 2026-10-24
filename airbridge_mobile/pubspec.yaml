@@ -12,6 +12,8 @@ dependencies:
     sdk: flutter
   app_links: ^6.4.1
   file_picker: ^13.1.0
+  butane_dart: ^0.2.0
+  butane_bluez: ^0.2.0
   universal_ble: ^3.1.2
   crypto: 3.0.6
   cryptography: 2.7.0

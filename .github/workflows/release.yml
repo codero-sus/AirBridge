@@ -120,7 +120,7 @@ jobs:
       - name: Install Linux build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev patchelf desktop-file-utils curl libfuse2 imagemagick
+          sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev patchelf desktop-file-utils curl libfuse2 imagemagick bluez
 
       - name: Set up Flutter stable
         uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2  # v2
