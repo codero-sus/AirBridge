@@ -29,13 +29,12 @@ Windows and Linux release builds scan with selectable connected webcams (includi
 
 ## How releases are triggered
 
-`.github/workflows/release.yml` runs only when a `vMAJOR.MINOR.PATCH` tag is pushed. Before building, it verifies that:
+`.github/workflows/release.yml` runs when a `v*` tag is pushed and distinguishes stable releases from pre-releases:
 
-1. The tag exactly matches the app version in `airbridge_mobile/pubspec.yaml` (the optional `+build` suffix is ignored).
-2. The tagged commit is already reachable from `main`—an unmerged branch cannot be released.
-3. Every expected asset is present and non-empty, no ZIP exists, and the generated SHA-256 manifest passes verification.
+- Stable tags use `vMAJOR.MINOR.PATCH`, must match `airbridge_mobile/pubspec.yaml` (the optional `+build` suffix is ignored), and must point to a commit already reachable from `main`.
+- Pre-release tags use `vMAJOR.MINOR.PATCH-label[.number...]`, such as `v4.0.0-preview.1`. Their `MAJOR.MINOR.PATCH` portion must match the app version, and the tagged commit must be the head of an open pull request.
 
-All four installable platform builds must pass before GitHub creates the release. The release includes generated change notes, the four separate native download formats, checksums, and signed provenance attestations. The release workflow also creates a convenience ZIP for download from the Actions run (not from the Releases page). Pull-request CI uploads each Android/desktop package separately and provides the combined ZIP with the unsigned iOS `.app` archive clearly labeled for developer inspection; the versioned release ZIP omits iOS.
+Both paths verify that the four installable platform assets are present and non-empty, reject ZIP files as release assets, and verify a generated SHA-256 manifest. All four platform builds must pass before GitHub publishes. Each release contains separate native downloads, checksums, generated notes, and signed provenance attestations. The workflow also creates an all-platforms ZIP as an Actions artifact only (not a Releases asset). Pull-request CI separately provides a combined ZIP that includes the unsigned iOS `.app` archive for developer inspection; iOS is not a Release download.
 
 ### Cutting a release
 
@@ -49,7 +48,18 @@ git tag v4.0.1
 git push origin v4.0.1
 ```
 
-Replace `4.0.1` with the version that was merged. The workflow will create the GitHub Release after successful builds. The workflow does not tag or publish this open feature branch; it intentionally waits for a versioned commit on `main`.
+Replace `4.0.1` with the version that was merged. The workflow creates the stable GitHub Release after successful builds. Stable release tags must point to commits on `main`.
+
+### Cutting a pull-request pre-release
+
+After CI passes, a pre-release can be published from the exact head commit of an open PR. Use the app version's `MAJOR.MINOR.PATCH` with a preview suffix; for the current `4.0.0+1` version, the first preview tag is `v4.0.0-preview.1`:
+
+```bash
+git tag v4.0.0-preview.1
+git push origin v4.0.0-preview.1
+```
+
+The tag must point to the current head of an open PR. The workflow builds the four native packages, marks the GitHub Release as a pre-release, and leaves the combined ZIP as an Actions artifact only. For later previews on the same version, increment the suffix (for example, `v4.0.0-preview.2`).
 
 ### Verify downloads
 

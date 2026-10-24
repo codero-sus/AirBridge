@@ -16,37 +16,55 @@ jobs:
   validate:
     name: Validate release tag
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
     outputs:
       app-version: ${{ steps.version.outputs.value }}
+      prerelease: ${{ steps.version.outputs.prerelease }}
     steps:
       - name: Check out tagged source and history
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           fetch-depth: 0
 
-      - name: Require a matching stable version on main
+      - name: Validate stable or pull-request pre-release tag
         id: version
         shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           tag="$GITHUB_REF_NAME"
-          if [[ ! "$tag" =~ ^v([0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
-            echo "Release tags must use vMAJOR.MINOR.PATCH (got: $tag)." >&2
+          if [[ ! "$tag" =~ ^v([0-9]+\.[0-9]+\.[0-9]+)(-([0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*))?$ ]]; then
+            echo "Tags must use vMAJOR.MINOR.PATCH or vMAJOR.MINOR.PATCH-label[.number] (got: $tag)." >&2
             exit 1
           fi
           tag_version="${BASH_REMATCH[1]}"
+          prerelease_suffix="${BASH_REMATCH[2]:-}"
           package_version="$(awk '$1 == "version:" { split($2, parts, "+"); print parts[1]; exit }' airbridge_mobile/pubspec.yaml)"
           if [[ -z "$package_version" || "$tag_version" != "$package_version" ]]; then
-            echo "Tag $tag does not match airbridge_mobile/pubspec.yaml version $package_version." >&2
+            echo "Tag $tag does not match the base app version in airbridge_mobile/pubspec.yaml ($package_version)." >&2
             exit 1
           fi
 
-          git fetch --no-tags origin main
-          if ! git merge-base --is-ancestor "$GITHUB_SHA" FETCH_HEAD; then
-            echo "Refusing to release: the tagged commit is not reachable from main." >&2
-            exit 1
+          if [[ -n "$prerelease_suffix" ]]; then
+            if ! gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/pulls" --jq '.[] | select(.state == "open") | .head.sha' | grep --fixed-strings --line-regexp --quiet "$GITHUB_SHA"; then
+              echo "Refusing to publish a pre-release unless the tagged commit is the head of an open pull request." >&2
+              exit 1
+            fi
+            is_prerelease=true
+          else
+            git fetch --no-tags origin main
+            if ! git merge-base --is-ancestor "$GITHUB_SHA" FETCH_HEAD; then
+              echo "Refusing to publish a stable release: the tagged commit is not reachable from main." >&2
+              exit 1
+            fi
+            is_prerelease=false
           fi
+
           echo "value=$package_version" >> "$GITHUB_OUTPUT"
+          echo "prerelease=$is_prerelease" >> "$GITHUB_OUTPUT"
 
   build-android:
     name: Build Android APK
@@ -285,14 +303,23 @@ jobs:
           retention-days: 7
           compression-level: 0
 
-      - name: Publish versioned release with generated notes
+      - name: Publish stable or pre-release with generated notes
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
           APP_VERSION: ${{ needs.validate.outputs.app-version }}
+          IS_PRERELEASE: ${{ needs.validate.outputs.prerelease }}
         run: |
           set -euo pipefail
-          cat > release-notes-prefix.md <<EOF
+          if [[ "$IS_PRERELEASE" == true ]]; then
+            cat > release-notes-prefix.md <<EOF
+          > **Pre-release:** This evaluation build comes from an open pull request and may be unstable. Do not use it as the stable release.
+
+          EOF
+          else
+            : > release-notes-prefix.md
+          fi
+          cat >> release-notes-prefix.md <<EOF
           ## Downloads
 
           - **Android:** \`Airbridge-Android.apk\`
@@ -305,9 +332,14 @@ jobs:
 
           These packages are not platform-code-signed or notarized. Windows may show SmartScreen, and macOS may require Control-click → Open. The Android APK is for direct sideloading, not a Play Store upload. iOS distribution is omitted because it requires an Apple signing team, profile, and multicast entitlement.
           EOF
-          gh release create "$GITHUB_REF_NAME" release-assets/* \
-            --repo "$GITHUB_REPOSITORY" \
-            --title "Airbridge $GITHUB_REF_NAME" \
-            --verify-tag \
-            --generate-notes \
+          release_args=(
+            --repo "$GITHUB_REPOSITORY"
+            --title "Airbridge $GITHUB_REF_NAME"
+            --verify-tag
+            --generate-notes
             --notes-file release-notes-prefix.md
+          )
+          if [[ "$IS_PRERELEASE" == true ]]; then
+            release_args+=(--prerelease)
+          fi
+          gh release create "$GITHUB_REF_NAME" release-assets/* "${release_args[@]}"
