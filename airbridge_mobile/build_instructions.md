@@ -8,7 +8,7 @@
 
 ### Required everywhere
 
-* **Flutter stable SDK 3.27+**; it includes the matching **Dart 3.6+ SDK** required by the desktop webcam scanner. Install Flutter once and add its `bin` folder to `PATH`.
+* **Flutter stable SDK 3.38+**; it includes the matching **Dart 3.10+ SDK** required by the current file-picker dependency and desktop webcam scanner. Install Flutter once and add its `bin` folder to `PATH`.
 * **Git** to clone/update the repository and **Python 3** for the platform bootstrap script. An IDE is optional: VS Code with the Flutter/Dart extensions or Android Studio are convenient, but the commands below work from a terminal.
 * Verify the core install with:
 
@@ -82,9 +82,9 @@ The scripts generate standard Flutter host projects in a temporary directory, co
 
 ## 3. Passwordless QR pairing and optional shared secret
 
-By default, pair devices from the dashboard: tap **Pair a device**, show the QR, scan it from the joining Android/iOS device (or copy/paste the QR text on desktop), compare the six-digit code on both screens, then confirm. The code is a short authentication string—not a password or a six-digit network credential. The QR contains a random 256-bit, single-use key; invitations expire after five minutes and lock after five invalid proofs. Each accepted device gets a distinct HMAC key, saved in the app's private support directory. Keep the QR private until pairing completes. Without a shared secret, only paired peers can authenticate mesh links, but message payloads are not encrypted on the LAN.
+Pair devices from the dashboard: tap **Pair a device**, show the QR, scan it from the joining Android/iOS device (or copy/paste the QR text on desktop), compare the six-digit code on both screens, then confirm. The code is a short authentication string—not a password or a six-digit network credential. The QR contains a random 256-bit, single-use key; invitations expire after five minutes and lock after five invalid proofs. Each accepted device gets a distinct pairwise credential saved in the app's private support directory. Keep the QR private until pairing completes. Paired messages, file metadata, file chunks, Bluetooth messages, and Bluetooth file chunks are encrypted with AES-256-GCM in transit by default; no build-time secret or encryption switch is required.
 
-For AES-256-GCM payload encryption and shared-secret authentication of discovery, optionally use the same randomly generated value on every node in one mesh. Do not commit it to Git. Example for Bash:
+An installation-wide `AIRBRIDGE_SHARED_SECRET` remains optional. It can authenticate unpaired legacy/shared-secret mesh peers and sign discovery beacons, and it enables encryption of the local message spool at rest. Do not commit it to Git. Use the same randomly generated value on every node that participates in that shared-secret mode. Example for Bash:
 
 ```bash
 export AIRBRIDGE_SHARED_SECRET="$(openssl rand -hex 32)"
@@ -100,9 +100,9 @@ $env:AIRBRIDGE_SHARED_SECRET = -join ($bytes | ForEach-Object { $_.ToString('x2'
 $rng.Dispose()
 ```
 
-Append `--dart-define=AIRBRIDGE_SHARED_SECRET=<32-byte-random-hex>` to any `flutter build` or `flutter run` command on every peer that should use payload encryption; omit it on every peer for QR-only pairing. It is embedded in the binary, so it is not a hardware-backed secret against someone who can extract the APK; use per-install provisioning/key management for higher assurance. HTTP request bodies to `/api/write` are still cleartext on the LAN before the node wraps them in an encrypted envelope, so call that endpoint only on a trusted subnet or add TLS at the transport boundary. When a shared secret is configured, it is used for legacy/shared-secret authentication; QR-paired per-device credentials are still available.
+Append `--dart-define=AIRBRIDGE_SHARED_SECRET=<32-byte-random-hex>` to `flutter run` or a build only when intentionally enabling shared-secret mode. The secret is embedded in the binary and is not hardware-backed; QR pairing is the recommended default. Transport payloads remain encrypted even when the define is omitted. HTTP/WS carry only sealed content plus non-secret routing metadata, but they are not TLS: IP addresses, timing, and discovery/status metadata remain visible on the LAN. Local message-spool encryption is optional and uses this shared secret; without it, message history is stored as JSON in the OS-private app directory. Incoming files are integrity-checked but are not encrypted at rest.
 
-Unpaired mesh links and unsigned HTTP writes are rejected even when `AIRBRIDGE_SHARED_SECRET` is omitted. Discovery beacons without a shared secret advertise metadata without a signature; pairing is still required before a WebSocket mesh link is accepted.
+Unpaired writes and mesh links are rejected unless shared-secret mode is intentionally configured. Discovery beacons without a shared secret advertise metadata without a signature; they do not carry message/file contents.
 
 ## 4. Android APK
 
@@ -121,7 +121,7 @@ flutter build apk --release
 adb install -r build/app/outputs/flutter-apk/app-release.apk
 ```
 
-For AES-256-GCM payload encryption, all peers must be built with the same secret:
+QR-paired messages and file transfers are encrypted by default; this standard release build requires no shared-secret define. Only if intentionally enabling installation-wide shared-secret mode, build every participating peer with the same value:
 
 ```bash
 flutter build apk --release --dart-define=AIRBRIDGE_SHARED_SECRET="$AIRBRIDGE_SHARED_SECRET"
@@ -133,7 +133,7 @@ To run directly on a connected device during development:
 flutter run -d <device-id>
 ```
 
-The manifest requests `INTERNET`, `ACCESS_NETWORK_STATE`, `ACCESS_WIFI_STATE`, `CHANGE_WIFI_MULTICAST_STATE`, `WAKE_LOCK`, and optional camera access for QR scanning; it declares camera hardware optional, allows cleartext LAN HTTP, registers `airbridge://pair`, and installs the native `WifiManager.MulticastLock` and active Wi-Fi IPv4-address bridges. Test a scheme launch with `adb shell am start -a android.intent.action.VIEW -d 'airbridge://pair?test=1'`; the app should open the pairing dialog and report that the test invitation is invalid. Allow the app through the Wi-Fi network's client-isolation/firewall settings. Some access points block client-to-client UDP broadcast regardless of app permissions.
+The manifest requests `INTERNET`, `ACCESS_NETWORK_STATE`, `ACCESS_WIFI_STATE`, `CHANGE_WIFI_MULTICAST_STATE`, `WAKE_LOCK`, optional camera access, and Android Bluetooth permissions (legacy Bluetooth/location on older versions plus scan/connect/advertise on Android 12+); camera and BLE hardware are optional. It allows cleartext LAN HTTP/WebSocket while peer content itself is AES-GCM sealed, registers `airbridge://pair`, and installs the native `WifiManager.MulticastLock` and active Wi-Fi IPv4-address bridges. BLE permissions are requested when Bluetooth is enabled. Test a scheme launch with `adb shell am start -a android.intent.action.VIEW -d 'airbridge://pair?test=1'`; the app should open the pairing dialog and report that the test invitation is invalid. Allow the app through the Wi-Fi network's client-isolation/firewall settings. Some access points block client-to-client UDP broadcast regardless of app permissions.
 
 ## 5. Windows
 
@@ -220,22 +220,55 @@ Stable releases are published from matching `vMAJOR.MINOR.PATCH` tags on `main`;
 
 ## 10. API smoke test
 
-`/status` is public for discovery/diagnostics. Anonymous writes are rejected. Pair app devices through the QR flow; for direct HTTP writes from a trusted script, build the node with `AIRBRIDGE_SHARED_SECRET` and sign the exact request body bytes plus a timestamp and one-time nonce. The server accepts timestamps within 120 seconds and rejects a nonce replay:
+`GET /status` is public for discovery/diagnostics. Anonymous writes are rejected. To send an HTTP test message, first build the node with `AIRBRIDGE_SHARED_SECRET` and install the optional Python AES-GCM helper dependency:
 
 ```bash
-BODY='{"payload":{"text":"hello from curl"}}'
-TS=$(date +%s)
-NONCE=$(openssl rand -hex 16)
-SIG=$(printf '%s.%s.%s' "$TS" "$NONCE" "$BODY" | openssl dgst -sha256 -hmac "$AIRBRIDGE_SHARED_SECRET" | awk '{print $NF}')
-curl -X POST "http://<node-ip>:8765/api/write" \
-  -H 'Content-Type: application/json' \
-  -H "X-Airbridge-Timestamp: $TS" \
-  -H "X-Airbridge-Nonce: $NONCE" \
-  -H "X-Airbridge-Signature: $SIG" \
-  --data-binary "$BODY"
+python -m pip install cryptography
 ```
 
-The WebSocket endpoint is `ws://<node-ip>:8765/ws`. The server first sends a random `challenge` frame. Reply with `{"type":"auth","deviceId":"<client-id>","signature":"<hex-hmac>"}`, where the signature is HMAC-SHA256 of `airbridge-ws-v1:<challenge-nonce>:<client-id>` under the configured installation-wide secret or the per-device key established by QR pairing. Unpaired IDs are rejected; there is no unsigned/open-LAN WebSocket mode. Then wait for `hello`; clients may send `{"type":"write","payload":...}`.
+The following Python 3 example seals the JSON payload, signs the exact request bytes with a timestamp and one-time nonce, and receives only an acknowledgement (the message contents are never echoed in cleartext):
+
+```python
+import base64, hashlib, hmac, json, os, time, urllib.request
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+
+node = 'http://<node-ip>:8765'
+secret = os.environ['AIRBRIDGE_SHARED_SECRET']
+status = json.load(urllib.request.urlopen(node + '/status'))
+recipient_id = status['deviceId']
+sender_id = 'trusted-script-client'  # Shared-secret mode authenticates this with the same secret.
+payload = {'text': 'hello from an encrypted client'}
+key = hashlib.sha256(('airbridge-peer-aes-gcm-v1:' + secret).encode()).digest()
+nonce = os.urandom(12)
+aad = f'airbridge-http-write-v1:{sender_id}:{recipient_id}'.encode()
+cleartext = json.dumps({'payload': payload, 'senderName': 'Python script'}, separators=(',', ':')).encode()
+sealed = AESGCM(key).encrypt(nonce, cleartext, aad)
+body = json.dumps({
+    'version': 1, 'senderId': sender_id, 'recipientId': recipient_id,
+    'sealed': {
+        'algorithm': 'AES-256-GCM',
+        'nonce': base64.b64encode(nonce).decode(),
+        'ciphertext': base64.b64encode(sealed[:-16]).decode(),
+        'mac': base64.b64encode(sealed[-16:]).decode(),
+    },
+}, separators=(',', ':')).encode()
+timestamp = str(int(time.time()))
+request_nonce = base64.urlsafe_b64encode(os.urandom(24)).decode().rstrip('=')
+signed = f'{timestamp}.{request_nonce}.{sender_id}.'.encode() + body
+signature = hmac.new(secret.encode(), signed, hashlib.sha256).hexdigest()
+request = urllib.request.Request(node + '/api/write', data=body, headers={
+    'Content-Type': 'application/json',
+    'X-Airbridge-Device-Id': sender_id,
+    'X-Airbridge-Timestamp': timestamp,
+    'X-Airbridge-Nonce': request_nonce,
+    'X-Airbridge-Signature': signature,
+}, method='POST')
+print(urllib.request.urlopen(request).read().decode())
+```
+
+For a production client without the installation-wide secret, use the pairwise credential established by QR pairing instead; do not extract or share another peer's key. HTTP signatures cover the device ID, exact body, timestamp, and one-time nonce. The server accepts a 120-second clock window and rejects replayed nonces.
+
+The WebSocket endpoint is `ws://<node-ip>:8765/ws`. The server first sends a random `challenge` frame. Reply with `{"type":"auth","deviceId":"<client-id>","signature":"<hex-hmac>"}`, where the signature is HMAC-SHA256 of `airbridge-ws-v1:<challenge-nonce>:<client-id>` under the configured shared secret or the pairwise QR credential. Unpaired IDs are rejected unless shared-secret mode is configured. Then wait for `hello`. A client `write` frame must identify `senderId` and `recipientId` and contain an AES-256-GCM `sealed` object; its decrypted JSON has `payload` and optional `senderName`, and its associated data is `airbridge-ws-write-v1:<sender-id>:<recipient-id>`. Incoming mesh `message` frames use protocol version 2 and recipient-specific encrypted envelopes; cleartext frames are rejected.
 
 ## Ports and network constraints
 
@@ -269,10 +302,18 @@ For Linux with UFW, allow the corresponding ports with `sudo ufw allow 8765/tcp`
 
 ### `/status` works, but writes fail
 
-* `401 Unauthorized`: direct HTTP writes require a valid HMAC. Check the exact body bytes, current Unix timestamp in seconds, a fresh nonce, and the configured shared secret; app-to-app HTTP writes must also identify a paired device. Requests older than 120 seconds, unpaired identities, and reused nonces are rejected. See the signed `curl` example above.
-* `400 Bad Request`: send a JSON object with a `payload` field, for example `{"payload":{"text":"hello"}}`.
+* `401 Unauthorized`: direct HTTP writes require both a valid HMAC and an AES-256-GCM sealed body. Check the exact body bytes, current Unix timestamp in seconds, fresh nonce, and shared or pairwise key; app-to-app HTTP writes must identify a paired device. Requests older than 120 seconds, invalid identities, cleartext bodies, and reused nonces are rejected. See the Python AES-GCM example above.
+* `400 Bad Request`: the request must be a JSON object with version 1, `senderId`, this node's `recipientId`, and a valid `sealed` AES-256-GCM object. Do not send a cleartext `payload` directly.
 * `413 Payload Too Large`: the encoded payload exceeds `AIRBRIDGE_MAX_PAYLOAD_BYTES` (1 MiB by default). Increase it at build time only if needed; the supported range is 1 KiB to 16 MiB.
 * `503 Service Unavailable`: the bounded worker queue, HTTP request capacity, or pending WebSocket-handshake limit is full. Retry shortly; repeated responses can indicate sustained load or an unauthenticated client flood.
+
+### File transfer fails or a received file is missing
+
+Confirm the peer was QR-paired, **Accept files from paired peers** is enabled on the receiver, the sender's device is online, and the file fits the receiver's configured Settings limit (100 MiB default; 1 GiB maximum). Keep both apps open on a reachable LAN and ensure enough free disk space. Files become visible only after all encrypted chunks arrive and both the exact file length and SHA-256 digest validate; incomplete transfers stay hidden and can be cancelled/retried.
+
+### Bluetooth scan or transfer fails
+
+Enable Bluetooth in Settings on both devices, grant Bluetooth permissions, keep the Bluetooth tab open to scan, and pair the devices using the normal QR/six-digit flow first. Bluetooth LE is not Bluetooth Classic. Confirm both adapters support the Airbridge GATT service; Linux currently cannot receive as a BLE peripheral, so use Wi-Fi/LAN for Linux receivers. BlueStacks Bluetooth pass-through varies by emulator and host; the demonstrated BlueStacks-to-Windows connection should continue over Wi-Fi/LAN even when emulator BLE is unavailable.
 
 ### Port already in use / node fails to start
 
@@ -311,7 +352,7 @@ If PowerShell says scripts are disabled, run `Set-ExecutionPolicy -Scope Process
 
 ### Build command is unsupported on this host
 
-This is expected when the target OS differs from the build host. Run `flutter build linux --release` from Linux (or a Linux Flutter installation inside WSL2), and run `flutter build macos --release` / `flutter build ios --release --no-codesign` from macOS with Xcode installed. A Windows Flutter installation cannot produce Linux, macOS, or iOS builds. On the target machine, check `flutter --version` (stable 3.27+ is required) and `flutter doctor -v` if Flutter still rejects the build-mode option.
+This is expected when the target OS differs from the build host. Run `flutter build linux --release` from Linux (or a Linux Flutter installation inside WSL2), and run `flutter build macos --release` / `flutter build ios --release --no-codesign` from macOS with Xcode installed. A Windows Flutter installation cannot produce Linux, macOS, or iOS builds. On the target machine, check `flutter --version` (stable 3.38+ is required) and `flutter doctor -v` if Flutter still rejects the build-mode option.
 
 ### Platform-specific build problems
 

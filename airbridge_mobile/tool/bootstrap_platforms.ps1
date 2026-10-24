@@ -3,7 +3,7 @@ $Root = Split-Path -Parent $PSScriptRoot
 Set-Location $Root
 
 if (-not (Get-Command flutter -ErrorAction SilentlyContinue)) {
-    throw 'Flutter 3.27+ is required. Install Flutter and add it to PATH.'
+    throw 'Flutter 3.38+ (Dart 3.10+) is required. Install Flutter and add it to PATH.'
 }
 
 $TemporaryRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("airbridge-flutter-" + [guid]::NewGuid().ToString('N'))

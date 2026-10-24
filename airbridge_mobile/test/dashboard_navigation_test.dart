@@ -59,6 +59,32 @@ void main() {
       find.text('Recent startup, discovery, pairing, and delivery events.'),
       findsOneWidget,
     );
+
+    await tester.tap(find.text('Files').first);
+    await tester.pumpAndSettle();
+    expect(find.text('File transfers'), findsOneWidget);
+
+    await tester.tap(find.text('Bluetooth').first);
+    await tester.pumpAndSettle();
+    expect(find.text('Bluetooth LE'), findsOneWidget);
+
+    await tester.tap(find.text('Troubleshooting').first);
+    await tester.pumpAndSettle();
+    expect(find.text('Quick diagnostics for discovery, pairing, file delivery, and Bluetooth.'), findsOneWidget);
+
+    await tester.tap(find.text('Docs').first);
+    await tester.pumpAndSettle();
+    expect(find.text('Airbridge docs'), findsOneWidget);
+
+    await tester.tap(find.text('Settings').first);
+    await tester.pumpAndSettle();
+    expect(find.text('Transport security'), findsOneWidget);
+    await tester.scrollUntilVisible(
+      find.text('Accept files from paired peers'),
+      300,
+      scrollable: find.byType(Scrollable).last,
+    );
+    expect(find.text('Accept files from paired peers'), findsOneWidget);
   });
 
   testWidgets('mobile drawer navigates to the peer list', (tester) async {

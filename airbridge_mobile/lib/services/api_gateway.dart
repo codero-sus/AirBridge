@@ -5,7 +5,10 @@ import 'dart:io';
 import 'dart:math';
 import 'dart:typed_data';
 
+import 'package:crypto/crypto.dart' show sha256;
+
 import '../config/node_config.dart';
+import 'file_transfer_store.dart';
 import '../models/peer.dart';
 import 'reconnect_backoff.dart';
 import 'security.dart';
@@ -40,6 +43,9 @@ class ApiGateway {
     required this.onConnectionsChanged,
     this.peerSecretProvider,
     this.pairingClaimHandler,
+    this.fileTransferStore,
+    this.allowIncomingFiles,
+    this.onFileReceived,
     this.maxConcurrentHttpRequests = 128,
     this.maxPendingWebSocketHandshakes = 32,
   }) {
@@ -56,6 +62,9 @@ class ApiGateway {
   final GatewayChangeCallback onConnectionsChanged;
   final PeerSecretProvider? peerSecretProvider;
   final PairingClaimHandler? pairingClaimHandler;
+  final FileTransferStore? fileTransferStore;
+  final bool Function()? allowIncomingFiles;
+  final void Function(FileTransferRecord record)? onFileReceived;
   final int maxConcurrentHttpRequests;
   final int maxPendingWebSocketHandshakes;
 
@@ -182,6 +191,182 @@ class ApiGateway {
     }
   }
 
+  Future<void> sendFile({
+    required String path,
+    required String peerId,
+    void Function(int sentBytes, int totalBytes)? onProgress,
+  }) async {
+    _ensureRunning();
+    final peer = _knownPeers[peerId];
+    if (peer == null) {
+      throw StateError('The selected peer is no longer available.');
+    }
+    final secret = _secretForPeer(peerId);
+    if (secret == null) {
+      throw StateError('Pair with this device by QR before sending files.');
+    }
+
+    final file = File(path);
+    if (!await file.exists()) throw FileSystemException('The selected file no longer exists.', path);
+    final totalBytes = await file.length();
+    if (totalBytes > maxSupportedIncomingFileBytes) {
+      throw FileTransferException(
+        'Files larger than ${_formatTransferSize(maxSupportedIncomingFileBytes)} are not supported.',
+        statusCode: HttpStatus.requestEntityTooLarge,
+      );
+    }
+    final fileName = path.replaceAll(String.fromCharCode(92), '/').split('/').last;
+    final digest = await sha256.bind(file.openRead()).first;
+    final transferId = _newChallenge();
+    final client = HttpClient()
+      ..connectionTimeout = const Duration(seconds: 5)
+      ..idleTimeout = const Duration(seconds: 30);
+
+    var sentBytes = 0;
+    onProgress?.call(0, totalBytes);
+    try {
+      final metadata = utf8.encode(jsonEncode(<String, Object?>{
+        'fileName': fileName,
+        'sizeBytes': totalBytes,
+        'sha256': digest.toString(),
+        'senderName': config.deviceName,
+      }));
+      final sealedMetadata = await sealPeerPayload(
+        secret: secret,
+        cleartext: metadata,
+        associatedData: _fileMetadataAad(config.deviceId, peerId, transferId),
+      );
+      await _sendSignedJson(
+        client: client,
+        peer: peer,
+        secret: secret,
+        path: '/api/files/start',
+        value: <String, Object?>{
+          'version': 1,
+          'transferId': transferId,
+          'senderId': config.deviceId,
+          'recipientId': peerId,
+          'sealed': sealedMetadata,
+        },
+      );
+
+      const chunkSize = 1024 * 1024;
+      final handle = await file.open(mode: FileMode.read);
+      var index = 0;
+      try {
+        while (sentBytes < totalBytes) {
+          final chunk = await handle.read(chunkSize);
+          if (chunk.isEmpty) {
+            throw const FileTransferException('The selected file changed during transfer.');
+          }
+          final sealedChunk = await sealPeerPayload(
+            secret: secret,
+            cleartext: chunk,
+            associatedData: _fileChunkAad(
+              config.deviceId,
+              peerId,
+              transferId,
+              index,
+            ),
+          );
+          await _sendSignedJson(
+            client: client,
+            peer: peer,
+            secret: secret,
+            path: '/api/files/chunk',
+            value: <String, Object?>{
+              'version': 1,
+              'transferId': transferId,
+              'senderId': config.deviceId,
+              'recipientId': peerId,
+              'index': index,
+              'sealed': sealedChunk,
+            },
+          );
+          sentBytes += chunk.length;
+          index++;
+          onProgress?.call(sentBytes, totalBytes);
+        }
+      } finally {
+        await handle.close();
+      }
+
+      await _sendSignedJson(
+        client: client,
+        peer: peer,
+        secret: secret,
+        path: '/api/files/complete',
+        value: <String, Object?>{
+          'version': 1,
+          'transferId': transferId,
+          'senderId': config.deviceId,
+          'recipientId': peerId,
+        },
+      );
+      onProgress?.call(totalBytes, totalBytes);
+      onLog('DATA', 'Sent ${_formatTransferSize(totalBytes)} file to ${peer.deviceName}.');
+    } on Object {
+      try {
+        await _sendSignedJson(
+          client: client,
+          peer: peer,
+          secret: secret,
+          path: '/api/files/cancel',
+          value: <String, Object?>{
+            'version': 1,
+            'transferId': transferId,
+            'senderId': config.deviceId,
+            'recipientId': peerId,
+          },
+          checkResponse: false,
+        );
+      } on Object {
+        // The receiver may already have closed or timed out the transfer.
+      }
+      rethrow;
+    } finally {
+      client.close(force: true);
+    }
+  }
+
+  Future<void> _sendSignedJson({
+    required HttpClient client,
+    required Peer peer,
+    required String secret,
+    required String path,
+    required Map<String, Object?> value,
+    bool checkResponse = true,
+  }) async {
+    final body = utf8.encode(jsonEncode(value));
+    final headers = createSignedPeerHeaders(
+      secret: secret,
+      deviceId: config.deviceId,
+      body: body,
+    );
+    final uri = Uri(
+      scheme: 'http',
+      host: peer.host,
+      port: peer.httpPort,
+      path: path,
+    );
+    final request = await client.postUrl(uri).timeout(const Duration(seconds: 10));
+    request.headers.contentType = ContentType.json;
+    request.contentLength = body.length;
+    for (final entry in headers.entries) {
+      request.headers.set(entry.key, entry.value);
+    }
+    request.add(body);
+    final response = await request.close().timeout(const Duration(minutes: 2));
+    final responseText = await utf8.decoder.bind(response).join();
+    if (checkResponse &&
+        (response.statusCode < HttpStatus.ok || response.statusCode >= HttpStatus.multipleChoices)) {
+      throw HttpException(
+        'Peer rejected the file transfer (${response.statusCode}): $responseText',
+        uri: uri,
+      );
+    }
+  }
+
   Future<void> _handleGuardedRequest(HttpRequest request) async {
     final isWebSocketRoute = request.method == 'GET' && request.uri.path == '/ws';
     if (isWebSocketRoute) {
@@ -245,6 +430,10 @@ class ApiGateway {
         await _handleWriteRequest(request);
         return;
       }
+      if (request.method == 'POST' && path.startsWith('/api/files/')) {
+        await _handleFileRequest(request, path);
+        return;
+      }
       if (path == '/ws' && request.method == 'GET') {
         if (!WebSocketTransformer.isUpgradeRequest(request)) {
           await _sendJson(request.response, HttpStatus.upgradeRequired, <String, Object?>{
@@ -266,6 +455,10 @@ class ApiGateway {
     } on _PayloadTooLargeException {
       await _sendJson(request.response, HttpStatus.requestEntityTooLarge, <String, Object?>{
         'error': 'Payload exceeds the configured size limit.',
+      });
+    } on FileTransferException catch (error) {
+      await _sendJson(request.response, error.statusCode, <String, Object?>{
+        'error': error.message,
       });
     } on WorkerQueueFullException {
       await _sendJson(request.response, HttpStatus.serviceUnavailable, <String, Object?>{
@@ -306,38 +499,197 @@ class ApiGateway {
   }
 
   Future<void> _handleWriteRequest(HttpRequest request) async {
-    final body = await _readBoundedBody(request);
-    final deviceId = request.headers.value('x-airbridge-device-id');
-    final peerSecret = deviceId == null ? null : peerSecretProvider?.call(deviceId);
-    final secret = peerSecret ?? (config.hasSharedSecret ? config.sharedSecret : null);
-    if (secret == null ||
-        !_verifyHttpSignature(
-          request,
-          body,
-          secret,
-          deviceId: peerSecret == null ? null : deviceId,
-        )) {
+    final body = await _readBoundedBody(
+      request,
+      maxBytes: config.maxPayloadBytes * 2 + 64 * 1024,
+    );
+    final authenticated = _authenticateSignedRequest(request, body);
+    if (authenticated == null) {
       await _sendJson(request.response, HttpStatus.unauthorized, <String, Object?>{
-        'error': 'Missing, expired, replayed, or invalid Airbridge request signature.',
+        'error': 'Missing, expired, replayed, unpaired, or invalid Airbridge request signature.',
       });
       return;
     }
     final decoded = jsonDecode(utf8.decode(body));
-    if (decoded is! Map<String, dynamic> || !decoded.containsKey('payload')) {
-      throw const FormatException('Body must be a JSON object containing "payload".');
+    if (decoded is! Map<String, dynamic> ||
+        decoded['version'] != 1 ||
+        decoded['senderId'] != authenticated.deviceId ||
+        decoded['recipientId'] != config.deviceId ||
+        decoded['sealed'] is! Map<String, dynamic>) {
+      throw const FormatException('Write body must contain a versioned encrypted peer payload.');
     }
-    final requestedName = decoded['senderName'];
+    final cleartext = await openPeerPayload(
+      secret: authenticated.secret,
+      sealed: Map<String, dynamic>.from(decoded['sealed']! as Map),
+      associatedData: _httpWriteAad(authenticated.deviceId, config.deviceId),
+    );
+    final clearValue = jsonDecode(utf8.decode(cleartext));
+    if (clearValue is! Map<String, dynamic> || !clearValue.containsKey('payload')) {
+      throw const FormatException('The decrypted write payload is invalid.');
+    }
+    final requestedName = clearValue['senderName'];
     final remoteHost = request.connectionInfo?.remoteAddress.address ?? 'HTTP peer';
     final trimmedName = requestedName is String ? requestedName.trim() : '';
     final senderName = trimmedName.isNotEmpty
         ? (trimmedName.length > 64 ? trimmedName.substring(0, 64) : trimmedName)
         : 'HTTP peer $remoteHost';
-    final envelope = await publish(decoded['payload'], senderName: senderName);
+    final envelope = await publish(clearValue['payload'], senderName: senderName);
     await _sendJson(request.response, HttpStatus.created, <String, Object?>{
       'ok': true,
       'messageId': envelope['id'],
-      'envelope': envelope,
     });
+  }
+
+  Future<void> _handleFileRequest(HttpRequest request, String path) async {
+    final store = fileTransferStore;
+    final incomingFilesDisabled =
+        allowIncomingFiles != null && !allowIncomingFiles!();
+    if (store == null ||
+        (incomingFilesDisabled && path != '/api/files/cancel')) {
+      await _sendJson(request.response, HttpStatus.forbidden, <String, Object?>{
+        'error': store == null
+            ? 'File transfer is not enabled on this node.'
+            : 'Incoming files are disabled in Settings.',
+      });
+      return;
+    }
+    if (path != '/api/files/start' &&
+        path != '/api/files/chunk' &&
+        path != '/api/files/complete' &&
+        path != '/api/files/cancel') {
+      await _sendJson(request.response, HttpStatus.notFound, <String, Object?>{
+        'error': 'Unknown file-transfer route.',
+      });
+      return;
+    }
+
+    final body = await _readBoundedBody(
+      request,
+      maxBytes: path == '/api/files/chunk' ? 2 * 1024 * 1024 : 32 * 1024,
+    );
+    final authenticated = _authenticateSignedRequest(request, body);
+    if (authenticated == null) {
+      await _sendJson(request.response, HttpStatus.unauthorized, <String, Object?>{
+        'error': 'Missing, expired, replayed, unpaired, or invalid Airbridge request signature.',
+      });
+      return;
+    }
+
+    final value = jsonDecode(utf8.decode(body));
+    if (value is! Map<String, dynamic> ||
+        value['version'] != 1 ||
+        value['senderId'] != authenticated.deviceId ||
+        value['recipientId'] != config.deviceId) {
+      throw const FormatException('File-transfer request identity or version is invalid.');
+    }
+    final transferId = value['transferId'];
+    if (transferId is! String) {
+      throw const FormatException('File-transfer request has no transfer ID.');
+    }
+
+    if (path == '/api/files/start') {
+      final sealed = value['sealed'];
+      if (sealed is! Map<String, dynamic>) {
+        throw const FormatException('File metadata must be encrypted.');
+      }
+      final cleartext = await openPeerPayload(
+        secret: authenticated.secret,
+        sealed: Map<String, dynamic>.from(sealed),
+        associatedData: _fileMetadataAad(
+          authenticated.deviceId,
+          config.deviceId,
+          transferId,
+        ),
+      );
+      final metadata = jsonDecode(utf8.decode(cleartext));
+      if (metadata is! Map<String, dynamic>) {
+        throw const FormatException('Decrypted file metadata is invalid.');
+      }
+      final fileName = metadata['fileName'];
+      final sizeBytes = metadata['sizeBytes'];
+      final digest = metadata['sha256'];
+      final senderName = metadata['senderName'];
+      if (fileName is! String ||
+          sizeBytes is! int ||
+          digest is! String ||
+          senderName is! String) {
+        throw const FormatException('Decrypted file metadata is incomplete.');
+      }
+      await store.beginTransfer(
+        transferId: transferId,
+        fileName: fileName,
+        sizeBytes: sizeBytes,
+        sha256Hex: digest,
+        source: 'LAN',
+        senderId: authenticated.deviceId,
+        senderName: senderName,
+      );
+      await _sendJson(request.response, HttpStatus.created, <String, Object?>{
+        'ok': true,
+        'transferId': transferId,
+      });
+      return;
+    }
+
+    if (path == '/api/files/chunk') {
+      final index = value['index'];
+      final sealed = value['sealed'];
+      if (index is! int || index < 0 || sealed is! Map<String, dynamic>) {
+        throw const FormatException('File chunk index or encrypted data is invalid.');
+      }
+      final cleartext = await openPeerPayload(
+        secret: authenticated.secret,
+        sealed: Map<String, dynamic>.from(sealed),
+        associatedData: _fileChunkAad(
+          authenticated.deviceId,
+          config.deviceId,
+          transferId,
+          index,
+        ),
+      );
+      await store.addChunk(
+        transferId: transferId,
+        index: index,
+        bytes: cleartext,
+      );
+      await _sendJson(request.response, HttpStatus.ok, <String, Object?>{
+        'ok': true,
+        'transferId': transferId,
+        'index': index,
+      });
+      return;
+    }
+
+    if (path == '/api/files/complete') {
+      final record = await store.completeTransfer(transferId);
+      onFileReceived?.call(record);
+      onLog('DATA', 'Received ${record.fileName} (${_formatTransferSize(record.sizeBytes)}).');
+      await _sendJson(request.response, HttpStatus.created, <String, Object?>{
+        'ok': true,
+        'transferId': transferId,
+      });
+      return;
+    }
+
+    await store.cancelTransfer(transferId);
+    await _sendJson(request.response, HttpStatus.ok, <String, Object?>{
+      'ok': true,
+      'transferId': transferId,
+    });
+  }
+
+  _AuthenticatedPeer? _authenticateSignedRequest(
+    HttpRequest request,
+    List<int> body,
+  ) {
+    final deviceId = request.headers.value('x-airbridge-device-id');
+    if (deviceId == null || deviceId.isEmpty || deviceId.length > 64) return null;
+    final secret = _secretForPeer(deviceId);
+    if (secret == null ||
+        !_verifyHttpSignature(request, body, secret, deviceId: deviceId)) {
+      return null;
+    }
+    return _AuthenticatedPeer(deviceId: deviceId, secret: secret);
   }
 
   Future<List<int>> _readBoundedBody(
@@ -497,16 +849,29 @@ class ApiGateway {
         link.socket.add(jsonEncode(<String, Object?>{'type': 'pong'}));
         return;
       case 'write':
-        if (!frame.containsKey('payload')) {
-          link.socket.add(jsonEncode(<String, Object?>{
-            'type': 'error',
-            'error': 'write frame requires a payload field.',
-          }));
+        final secret = _secretForPeer(link.peerId);
+        final sealed = frame['sealed'];
+        if (secret == null ||
+            frame['senderId'] != link.peerId ||
+            frame['recipientId'] != config.deviceId ||
+            sealed is! Map<String, dynamic>) {
+          onLog('WARN', 'Rejected unauthenticated or cleartext WebSocket write from ${link.peerId}.');
           return;
         }
+        final cleartext = await openPeerPayload(
+          secret: secret,
+          sealed: Map<String, dynamic>.from(sealed),
+          associatedData: _wsWriteAad(link.peerId, config.deviceId),
+        );
+        final clearValue = jsonDecode(utf8.decode(cleartext));
+        if (clearValue is! Map<String, dynamic> || !clearValue.containsKey('payload')) {
+          throw const FormatException('The decrypted WebSocket write payload is invalid.');
+        }
         final envelope = await publish(
-          frame['payload'],
-          senderName: link.peerId.isEmpty ? 'WebSocket peer' : link.peerId,
+          clearValue['payload'],
+          senderName: clearValue['senderName'] is String
+              ? clearValue['senderName']! as String
+              : 'WebSocket peer ${link.peerId}',
         );
         link.socket.add(jsonEncode(<String, Object?>{
           'type': 'accepted',
@@ -514,11 +879,31 @@ class ApiGateway {
         }));
         return;
       case 'message':
-        final rawEnvelope = frame['envelope'];
-        if (rawEnvelope is! Map<String, dynamic>) return;
+        final secret = _secretForPeer(link.peerId);
+        final sealed = frame['sealed'];
+        final messageId = frame['messageId'];
+        if (secret == null ||
+            frame['version'] != 2 ||
+            frame['senderId'] != link.peerId ||
+            frame['recipientId'] != config.deviceId ||
+            messageId is! String ||
+            sealed is! Map<String, dynamic>) {
+          onLog('WARN', 'Rejected cleartext or malformed mesh message from ${link.peerId}.');
+          return;
+        }
+        final cleartext = await openPeerPayload(
+          secret: secret,
+          sealed: Map<String, dynamic>.from(sealed),
+          associatedData: _wsMessageAad(link.peerId, config.deviceId, messageId),
+        );
+        final rawEnvelope = jsonDecode(utf8.decode(cleartext));
+        if (rawEnvelope is! Map<String, dynamic>) {
+          onLog('WARN', 'Rejected malformed encrypted mesh envelope from ${link.peerId}.');
+          return;
+        }
         final envelope = Map<String, dynamic>.from(rawEnvelope);
-        if (!_isValidEnvelope(envelope)) {
-          onLog('WARN', 'Rejected malformed mesh envelope from ${link.peerId}.');
+        if (!_isValidEnvelope(envelope) || envelope['id'] != messageId) {
+          onLog('WARN', 'Rejected malformed encrypted mesh envelope from ${link.peerId}.');
           return;
         }
         await _routeEnvelope(envelope, origin: link, local: false);
@@ -611,16 +996,33 @@ class ApiGateway {
     } finally {
       _processingMessages.remove(messageId);
     }
-    final frame = jsonEncode(<String, Object?>{
-      'type': 'message',
-      'envelope': envelope,
-    });
     for (final link in _links.toList(growable: false)) {
       if (identical(link, origin) || link.socket.closeCode != null) continue;
       try {
-        link.socket.add(frame);
+        final secret = _secretForPeer(link.peerId);
+        if (secret == null) {
+          onLog('WARN', 'Cannot encrypt a message for untrusted peer ${link.peerId}.');
+          continue;
+        }
+        final sealed = await sealPeerPayload(
+          secret: secret,
+          cleartext: utf8.encode(jsonEncode(envelope)),
+          associatedData: _wsMessageAad(
+            config.deviceId,
+            link.peerId,
+            messageId,
+          ),
+        );
+        link.socket.add(jsonEncode(<String, Object?>{
+          'type': 'message',
+          'version': 2,
+          'senderId': config.deviceId,
+          'recipientId': link.peerId,
+          'messageId': messageId,
+          'sealed': sealed,
+        }));
       } on Object catch (error) {
-        onLog('WARN', 'Could not forward message to ${link.peerId}: $error');
+        onLog('WARN', 'Could not encrypt or forward message to ${link.peerId}: $error');
       }
     }
   }
@@ -808,6 +1210,42 @@ class ApiGateway {
     response.write(jsonEncode(value));
     await response.close();
   }
+}
+
+class _AuthenticatedPeer {
+  const _AuthenticatedPeer({required this.deviceId, required this.secret});
+
+  final String deviceId;
+  final String secret;
+}
+
+String _httpWriteAad(String senderId, String recipientId) =>
+    'airbridge-http-write-v1:$senderId:$recipientId';
+
+String _fileMetadataAad(String senderId, String recipientId, String transferId) =>
+    'airbridge-file-metadata-v1:$senderId:$recipientId:$transferId';
+
+String _fileChunkAad(
+  String senderId,
+  String recipientId,
+  String transferId,
+  int index,
+) =>
+    'airbridge-file-chunk-v1:$senderId:$recipientId:$transferId:$index';
+
+String _wsWriteAad(String senderId, String recipientId) =>
+    'airbridge-ws-write-v1:$senderId:$recipientId';
+
+String _wsMessageAad(String senderId, String recipientId, String messageId) =>
+    'airbridge-ws-message-v2:$senderId:$recipientId:$messageId';
+
+String _formatTransferSize(int value) {
+  if (value < 1024) return '$value B';
+  if (value < 1024 * 1024) return '${(value / 1024).toStringAsFixed(1)} KB';
+  if (value < 1024 * 1024 * 1024) {
+    return '${(value / (1024 * 1024)).toStringAsFixed(1)} MB';
+  }
+  return '${(value / (1024 * 1024 * 1024)).toStringAsFixed(1)} GB';
 }
 
 class _SocketLink {

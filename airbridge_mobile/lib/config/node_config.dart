@@ -75,7 +75,7 @@ class NodeConfig {
   );
 
   final String deviceId;
-  final String deviceName;
+  String deviceName;
   final Directory supportDirectory;
   final Directory messageDirectory;
   final int httpPort;

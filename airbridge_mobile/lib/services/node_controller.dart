@@ -5,15 +5,19 @@ import 'dart:io';
 import 'dart:math';
 
 import 'package:flutter/foundation.dart';
+import 'package:universal_ble/universal_ble.dart' show BleDevice;
 
 import '../config/node_config.dart';
 import '../models/node_message.dart';
 import '../models/peer.dart';
 import 'android_network_bridge.dart';
 import 'api_gateway.dart';
+import 'bluetooth_transfer_service.dart';
 import 'discovery_service.dart';
+import 'file_transfer_store.dart';
 import 'network_address_selector.dart';
 import 'pairing_service.dart';
+import 'settings_store.dart';
 import 'task_worker.dart';
 
 class NodeController extends ChangeNotifier {
@@ -23,10 +27,27 @@ class NodeController extends ChangeNotifier {
       config: config,
       onPeerTrusted: _handleTrustedPeer,
     );
+    _settingsStore = SettingsStore(supportDirectory: config.supportDirectory);
+    _fileStore = FileTransferStore(supportDirectory: config.supportDirectory);
+    _settings = AirbridgeSettings(deviceName: config.deviceName);
+    _bluetooth = BluetoothTransferService(
+      config: config,
+      fileStore: _fileStore,
+      peerSecretProvider: (deviceId) => _pairing.secretForPeer(deviceId),
+      allowIncomingFiles: () => _settings.autoAcceptFiles,
+      onFileReceived: _handleFileReceived,
+      onMessageReceived: _handleBluetoothMessage,
+      onLog: _recordLog,
+      onChanged: _notify,
+    );
   }
 
   final NodeConfig config;
   late final PairingService _pairing;
+  late final SettingsStore _settingsStore;
+  late final FileTransferStore _fileStore;
+  late final BluetoothTransferService _bluetooth;
+  late AirbridgeSettings _settings;
   TaskWorker _worker = TaskWorker(maxConcurrent: 2, maxQueued: 64);
   final Map<String, Peer> _peers = <String, Peer>{};
   final List<NodeMessage> _messages = <NodeMessage>[];
@@ -56,6 +77,10 @@ class NodeController extends ChangeNotifier {
   bool get isRunning => _lifecycle == 'online';
   bool get hasSharedSecret => config.hasSharedSecret;
   List<TrustedPeer> get trustedPeers => _pairing.trustedPeers;
+  AirbridgeSettings get settings => _settings;
+  BluetoothTransferService get bluetooth => _bluetooth;
+  List<FileTransferRecord> get receivedFiles => _fileStore.records;
+  String get receivedFilesDirectory => _fileStore.receivedDirectoryPath;
   int get connectedPeerCount => _gateway?.connectedPeerIds.length ?? 0;
   Set<String> get connectedPeerIds =>
       Set<String>.unmodifiable(_gateway?.connectedPeerIds ?? const <String>{});
@@ -89,6 +114,11 @@ class NodeController extends ChangeNotifier {
     _recordLog('INFO', 'Starting Airbridge node ${config.deviceId}.');
 
     try {
+      _settings = await _settingsStore.load(fallbackName: config.deviceName);
+      config.deviceName = _settings.deviceName;
+      _fileStore.maxIncomingFileBytes = _settings.maxIncomingFileBytes;
+      await _fileStore.loadExisting();
+
       try {
         await AndroidNetworkBridge.acquireMulticastLock();
         if (Platform.isAndroid) {
@@ -110,6 +140,9 @@ class NodeController extends ChangeNotifier {
         onConnectionsChanged: _handleConnectionChange,
         peerSecretProvider: _pairing.secretForPeer,
         pairingClaimHandler: _pairing.handleClaim,
+        fileTransferStore: _fileStore,
+        allowIncomingFiles: () => _settings.autoAcceptFiles,
+        onFileReceived: _handleFileReceived,
       );
       await _gateway!.start();
 
@@ -125,10 +158,17 @@ class NodeController extends ChangeNotifier {
 
       _started = true;
       _lifecycle = 'online';
+      if (_settings.bluetoothEnabled) {
+        try {
+          await _bluetooth.start();
+        } on Object catch (error) {
+          _recordLog('WARN', 'Saved Bluetooth setting could not be restored: $error');
+        }
+      }
       if (!config.hasSharedSecret) {
         _recordLog(
-          'WARN',
-          'Per-device pairing authentication is active, but mesh payloads are not encrypted. Configure AIRBRIDGE_SHARED_SECRET if payload encryption is required.',
+          'INFO',
+          'QR-paired peer links encrypt message and file contents with AES-256-GCM.',
         );
       } else if (config.sharedSecret.length < 32) {
         _recordLog(
@@ -217,6 +257,103 @@ class NodeController extends ChangeNotifier {
       _recordLog('ERROR', 'Could not dispatch payload: $error');
       rethrow;
     }
+  }
+
+  Future<void> updateSettings({
+    String? deviceName,
+    bool? bluetoothEnabled,
+    bool? autoAcceptFiles,
+    int? maxIncomingFileBytes,
+  }) async {
+    final safeName = deviceName == null
+        ? null
+        : AirbridgeSettings.sanitizeDeviceName(deviceName);
+    final next = _settings.copyWith(
+      deviceName: safeName,
+      bluetoothEnabled: bluetoothEnabled,
+      autoAcceptFiles: autoAcceptFiles,
+      maxIncomingFileBytes: maxIncomingFileBytes,
+    );
+    if (next.maxIncomingFileBytes < 1024 * 1024 ||
+        next.maxIncomingFileBytes > maxSupportedIncomingFileBytes) {
+      throw ArgumentError.value(
+        next.maxIncomingFileBytes,
+        'maxIncomingFileBytes',
+        'Choose a receive limit between 1 MiB and 1 GiB.',
+      );
+    }
+
+    if (next.bluetoothEnabled != _settings.bluetoothEnabled) {
+      if (next.bluetoothEnabled) {
+        await _bluetooth.start();
+      } else {
+        await _bluetooth.stop();
+      }
+    }
+    final nameChanged = next.deviceName != _settings.deviceName;
+    _settings = next;
+    config.deviceName = next.deviceName;
+    _fileStore.maxIncomingFileBytes = next.maxIncomingFileBytes;
+    await _settingsStore.save(next);
+    if (nameChanged) {
+      _recordLog('INFO', 'This device is now named ${next.deviceName}.');
+    } else {
+      _notify();
+    }
+  }
+
+  Future<void> sendFileToPeer({
+    required String path,
+    required String peerId,
+    void Function(int sentBytes, int totalBytes)? onProgress,
+  }) async {
+    final gateway = _gateway;
+    if (!_started || gateway == null) {
+      throw StateError('The Airbridge node is not online.');
+    }
+    await gateway.sendFile(path: path, peerId: peerId, onProgress: onProgress);
+  }
+
+  Future<void> sendBluetoothFile({
+    required BleDevice device,
+    required String path,
+    void Function(int sentBytes, int totalBytes)? onProgress,
+  }) =>
+      _bluetooth.sendFile(device: device, path: path, onProgress: onProgress);
+
+  Future<void> sendBluetoothMessage({
+    required BleDevice device,
+    required Object? payload,
+  }) =>
+      _bluetooth.sendMessage(
+        device: device,
+        payload: payload,
+        senderName: config.deviceName,
+      );
+
+  void _handleFileReceived(FileTransferRecord record) {
+    _recordLog(
+      'DATA',
+      'File ${record.fileName} received from ${record.senderName} via ${record.source}.',
+    );
+  }
+
+  Future<void> _handleBluetoothMessage({
+    required String senderId,
+    required String senderName,
+    required Object? payload,
+  }) async {
+    final envelope = await _worker.storeMessage(
+      directoryPath: config.messageDirectory.path,
+      sharedSecret: config.sharedSecret,
+      messageId: _newMessageId(),
+      senderId: senderId,
+      senderName: senderName,
+      createdAt: DateTime.now(),
+      payload: payload,
+      maxPayloadBytes: config.maxPayloadBytes,
+    );
+    await _handleEnvelope(envelope, local: false);
   }
 
   Map<String, Object?> _statusSnapshot() => <String, Object?>{
@@ -476,6 +613,11 @@ class NodeController extends ChangeNotifier {
   Future<void> _cleanupServices() async {
     _addressRefreshTimer?.cancel();
     _addressRefreshTimer = null;
+    try {
+      await _bluetooth.stop();
+    } on Object catch (error) {
+      _recordLog('WARN', 'Bluetooth shutdown error: $error');
+    }
     try {
       await _discovery?.stop();
     } on Object catch (error) {
