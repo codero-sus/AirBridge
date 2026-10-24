@@ -101,11 +101,17 @@ void main() {
       });
 
       var sentBytes = 0;
-      await rightGateway.sendFile(
-        path: source.path,
-        peerId: _leftId,
-        onProgress: (sent, _) => sentBytes = sent,
-      );
+      try {
+        await rightGateway.sendFile(
+          path: source.path,
+          peerId: _leftId,
+          onProgress: (sent, _) => sentBytes = sent,
+        );
+      } on Object catch (error, stackTrace) {
+        print('FILE_TRANSFER_GATEWAY_SEND_ERROR: $error');
+        print(stackTrace);
+        rethrow;
+      }
       final record = await receivedFile.future.timeout(const Duration(seconds: 15));
       expect(sentBytes, bytesCount);
       expect(record.fileName, 'payload.bin');
