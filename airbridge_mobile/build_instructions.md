@@ -8,7 +8,7 @@
 
 ### Required everywhere
 
-* **Flutter stable SDK 3.24+**; it includes the matching **Dart 3.5+ SDK**. Install Flutter once and add its `bin` folder to `PATH`.
+* **Flutter stable SDK 3.27+**; it includes the matching **Dart 3.6+ SDK** required by the desktop webcam scanner. Install Flutter once and add its `bin` folder to `PATH`.
 * **Git** to clone/update the repository and **Python 3** for the platform bootstrap script. An IDE is optional: VS Code with the Flutter/Dart extensions or Android Studio are convenient, but the commands below work from a terminal.
 * Verify the core install with:
 
@@ -24,7 +24,7 @@ flutter doctor -v
 | --- | --- | --- |
 | Android `.apk` | Windows, macOS, or Linux | Android Studio (recommended) with Android SDK Command-line Tools, Platform-Tools (`adb`), and Android Build Tools; a JDK supported by Flutter. Accept licenses with `flutter doctor --android-licenses`. `adb` is only needed to install/test on a device, not to compile the APK. |
 | Windows installer `.exe` | Windows | Visual Studio 2022 with **Desktop development with C++**, MSVC C++ build tools, and a Windows 10/11 SDK. Install Inno Setup 6 to package the complete Flutter release folder into one installer executable. |
-| Linux `.AppImage` | Linux x86_64 | `clang`, `cmake`, `ninja-build`, `pkg-config`, GTK 3 development headers, `patchelf`, `desktop-file-utils`, `curl`, `libfuse2`, ImageMagick, and a C++ standard library toolchain. The release packager downloads a pinned linuxdeploy AppImage and verifies its SHA-256 digest. |
+| Linux `.AppImage` | Linux x86_64 | `clang`, `cmake`, `ninja-build`, `pkg-config`, GTK 3 development headers, `patchelf`, `desktop-file-utils`, `xdg-utils` (for `xdg-mime` protocol registration), `curl`, `libfuse2`, ImageMagick, and a C++ standard library toolchain. The release packager downloads a pinned linuxdeploy AppImage and verifies its SHA-256 digest. |
 | macOS `.dmg` | macOS | Xcode and CocoaPods. Xcode command-line tools must be selected and its license accepted. The current public DMG is unsigned and not notarized. |
 | iOS 15.5+ app / `.ipa` | macOS only | Xcode and CocoaPods. Airbridge's camera-scanning dependency requires iOS 15.5 or newer; bootstrap applies that deployment target. An unsigned build needs no signing identity; device installation or a distributable IPA requires an Apple Developer signing team/profile. Airbridge's multicast discovery also needs Apple's multicast entitlement on the App ID/profile. |
 
@@ -32,7 +32,7 @@ For Debian/Ubuntu, install the Linux desktop packages with:
 
 ```bash
 sudo apt-get update
-sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev patchelf desktop-file-utils curl libfuse2 imagemagick
+sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev patchelf desktop-file-utils xdg-utils curl libfuse2 imagemagick
 ```
 
 For macOS/iOS, install Xcode from the App Store and Homebrew, then select Xcode and install CocoaPods:
@@ -55,7 +55,7 @@ For Windows, install Visual Studio 2022 (not just Visual Studio Code) and select
 
 > Build on the target desktop OS: Windows executables on Windows, Linux bundles on Linux, and macOS/iOS on macOS. Android APKs can be built from any supported desktop host. The Android SDK/JDK, Visual Studio C++ workload, Linux packages, Xcode, and CocoaPods are native build dependencies; Flutter and Dart alone are not sufficient.
 
-The generated native host projects are intentionally the standard Flutter templates. The bootstrap scripts generate them and then apply the checked-in permissions, native bridge, and Apple network entitlements.
+The generated native host projects are intentionally the standard Flutter templates. The bootstrap scripts generate them and apply the checked-in network/camera permissions, native bridge, Apple entitlements and URL declarations, plus Windows/Linux single-instance URL forwarding; they also install the official app icons.
 
 ## 2. Bootstrap once
 
@@ -133,7 +133,7 @@ To run directly on a connected device during development:
 flutter run -d <device-id>
 ```
 
-The manifest requests `INTERNET`, `ACCESS_NETWORK_STATE`, `ACCESS_WIFI_STATE`, `CHANGE_WIFI_MULTICAST_STATE`, `WAKE_LOCK`, and optional camera access for QR scanning; it allows cleartext LAN HTTP and installs the native `WifiManager.MulticastLock` bridge. Allow the app through the Wi-Fi network's client-isolation/firewall settings. Some access points block client-to-client UDP broadcast regardless of app permissions.
+The manifest requests `INTERNET`, `ACCESS_NETWORK_STATE`, `ACCESS_WIFI_STATE`, `CHANGE_WIFI_MULTICAST_STATE`, `WAKE_LOCK`, and optional camera access for QR scanning; it declares camera hardware optional, allows cleartext LAN HTTP, registers `airbridge://pair`, and installs the native `WifiManager.MulticastLock` and active Wi-Fi IPv4-address bridges. Test a scheme launch with `adb shell am start -a android.intent.action.VIEW -d 'airbridge://pair?test=1'`; the app should open the pairing dialog and report that the test invitation is invalid. Allow the app through the Wi-Fi network's client-isolation/firewall settings. Some access points block client-to-client UDP broadcast regardless of app permissions.
 
 ## 5. Windows
 
@@ -151,7 +151,7 @@ choco install innosetup --yes --no-progress
 .\tool\package_windows_installer.ps1 -AppVersion 4.0.0 -OutputDirectory .\build\release
 ```
 
-Replace `4.0.0` with the version in `pubspec.yaml`. The installer is `build\release\Airbridge-Windows-Setup-4.0.0.exe` and contains the entire Flutter `Release` folder. Windows Defender Firewall may prompt for permission to accept inbound connections; allow Airbridge on the trusted private LAN profile.
+Replace `4.0.0` with the version in `pubspec.yaml`. The installer is `build\release\Airbridge-Windows-Setup-4.0.0.exe` and contains the entire Flutter `Release` folder. It registers the `airbridge://` URL protocol and removes that registration on uninstall. Test it after installation with `Start-Process 'airbridge://pair?test=1'`. For webcam scanning, choose the wired camera from the scanner's camera menu and enable **Settings → Privacy & security → Camera → Let desktop apps access your camera**. Windows Defender Firewall may prompt for permission to accept inbound connections; allow Airbridge on the trusted private LAN profile.
 
 ## 6. Linux
 
@@ -159,7 +159,7 @@ On Debian/Ubuntu, for example:
 
 ```bash
 sudo apt-get update
-sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev patchelf desktop-file-utils curl libfuse2 imagemagick
+sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev patchelf desktop-file-utils xdg-utils curl libfuse2 imagemagick
 cd airbridge_mobile
 flutter build linux --release
 ```
@@ -170,7 +170,15 @@ The full Flutter bundle is under `build/linux/x64/release/bundle/`. To package a
 ./tool/package_linux_appimage.sh ./build/release
 ```
 
-The script downloads the pinned linuxdeploy tool, verifies its SHA-256 digest, and produces `build/release/Airbridge-Linux-x86_64.AppImage`. Allow the configured TCP/UDP ports in the host firewall.
+The script downloads the pinned linuxdeploy tool, verifies its SHA-256 digest, and produces `build/release/Airbridge-Linux-x86_64.AppImage`. To register the custom scheme with the desktop environment (the AppImage itself is not automatically installed as the default URL handler), run:
+
+```bash
+chmod +x "$HOME/Downloads/Airbridge-Linux-x86_64.AppImage"
+./tool/register_linux_url_scheme.sh "$HOME/Downloads/Airbridge-Linux-x86_64.AppImage"
+xdg-open 'airbridge://pair?test=1'
+```
+
+Adjust the first command's path to where you saved the AppImage. The AppImage scanner lets you select a wired USB webcam. Ensure the camera is accessible as your desktop user; on systems that use the `video` group, run `sudo usermod -aG video "$USER"` and then sign out/in. Permit the configured TCP/UDP ports in the host firewall.
 
 ## 7. macOS
 
@@ -187,7 +195,7 @@ The app is under `build/macos/Build/Products/Release/`. Package it as a drag-to-
 ./tool/package_macos_dmg.sh ./build/release
 ```
 
-The output is `build/release/Airbridge-macOS.dmg`. It is not code-signed or notarized yet. macOS may ask for Local Network access; approve it. The bootstrap adds client/server network entitlements for the generated macOS sandbox profile.
+The output is `build/release/Airbridge-macOS.dmg`. It is not code-signed or notarized yet. The bundle registers `airbridge://` and declares camera/network access; macOS may ask for Camera and Local Network permissions, which must be approved for QR scanning and peer connections. After copying Airbridge into Applications, test with `open 'airbridge://pair?test=1'`. The bootstrap adds client/server network and camera entitlements for the generated macOS sandbox profile.
 
 ## 8. iOS
 
@@ -204,7 +212,7 @@ For a signed IPA, set a team in Xcode or provide normal Flutter signing options,
 flutter build ipa --release
 ```
 
-Open `ios/Runner.xcworkspace` in Xcode to select the signing team and install on a device. iOS asks the user for Local Network permission. UDP broadcast/multicast discovery also requires Apple's `com.apple.developer.networking.multicast` entitlement to be enabled for the App ID and included in the provisioning profile; the bootstrap configures the entitlement file, but Apple approval/profile provisioning is an external prerequisite. The app is a foreground peer: iOS can suspend its sockets when backgrounded.
+Open `ios/Runner.xcworkspace` in Xcode to select the signing team and install on a device. The app registers the `airbridge://` scheme and declares its camera purpose string; iOS asks the user for Camera and Local Network permission when those features are first used. UDP broadcast/multicast discovery also requires Apple's `com.apple.developer.networking.multicast` entitlement to be enabled for the App ID and included in the provisioning profile; the bootstrap configures the entitlement file, but Apple approval/profile provisioning is an external prerequisite. The app is a foreground peer: iOS can suspend its sockets when backgrounded.
 
 ## 9. Versioned GitHub releases
 
@@ -237,7 +245,7 @@ Defaults are TCP `8765` and UDP `47660`, configurable with `--dart-define=AIRBRI
 
 ### Peers do not appear
 
-1. Put both devices on the same reachable LAN/subnet. Guest Wi-Fi, VPNs, and router/AP **client isolation** commonly block peer traffic.
+1. Put both devices on the same reachable Wi-Fi/LAN/subnet. Mobile data alone cannot make a phone reachable from the PC; guest Wi-Fi, VPNs, and router/AP **client isolation** commonly block peer traffic. After changing networks, create a fresh QR so it contains the current address.
 2. Use the same UDP port (`47660` by default) on every peer and allow inbound UDP on that port. Also allow inbound TCP (`8765` by default) for API/WebSocket traffic.
 3. If a shared secret is configured, rebuild **every peer** with the same `AIRBRIDGE_SHARED_SECRET`. Discovery beacons are authenticated; a mismatched key causes them to be ignored. Changing the environment variable does not alter an already-built app.
 4. Scan the host device's one-time pairing QR and compare the six-digit verification code on both screens. Discovery can list unpaired devices, but they will not establish a mesh link. Keep the app open in the foreground while testing and check the dashboard's System log for startup or socket errors.
@@ -303,7 +311,7 @@ If PowerShell says scripts are disabled, run `Set-ExecutionPolicy -Scope Process
 
 ### Build command is unsupported on this host
 
-This is expected when the target OS differs from the build host. Run `flutter build linux --release` from Linux (or a Linux Flutter installation inside WSL2), and run `flutter build macos --release` / `flutter build ios --release --no-codesign` from macOS with Xcode installed. A Windows Flutter installation cannot produce Linux, macOS, or iOS builds. On the target machine, check `flutter --version` (stable 3.24+ is required) and `flutter doctor -v` if Flutter still rejects the build-mode option.
+This is expected when the target OS differs from the build host. Run `flutter build linux --release` from Linux (or a Linux Flutter installation inside WSL2), and run `flutter build macos --release` / `flutter build ios --release --no-codesign` from macOS with Xcode installed. A Windows Flutter installation cannot produce Linux, macOS, or iOS builds. On the target machine, check `flutter --version` (stable 3.27+ is required) and `flutter doctor -v` if Flutter still rejects the build-mode option.
 
 ### Platform-specific build problems
 

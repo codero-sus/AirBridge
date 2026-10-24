@@ -92,8 +92,8 @@ class PairingInvitation {
     }
     final uri = Uri.tryParse(payload.trim());
     if (uri == null ||
-        uri.scheme != 'airbridge' ||
-        uri.host != 'pair' ||
+        uri.scheme.toLowerCase() != 'airbridge' ||
+        uri.host.toLowerCase() != 'pair' ||
         uri.path.isNotEmpty ||
         uri.fragment.isNotEmpty ||
         uri.userInfo.isNotEmpty ||
@@ -286,7 +286,10 @@ class PairingService {
         httpPort > 65535 ||
         udpPort < 1024 ||
         udpPort > 65535) {
-      throw const PairingException('The node does not have a usable local network address.');
+      throw const PairingException(
+        'A reachable Wi-Fi/LAN IPv4 address is required to create a pairing QR. '
+        'Mobile data or a VPN alone may not be reachable from the other device.',
+      );
     }
     final issuedAt = (now ?? DateTime.now()).toUtc();
     final invitation = PairingInvitation(
@@ -526,9 +529,17 @@ class PairingService {
       onPeerTrusted(peer, invitation.hostAddress);
       return peer;
     } on TimeoutException {
-      throw const PairingException('The pairing request timed out. Check the local network and try again.');
+      throw PairingException(
+        'Pairing with ${invitation.hostAddress}:${invitation.httpPort} timed out. '
+        'Both devices must share the same Wi-Fi/LAN; mobile data, VPNs, guest Wi-Fi, '
+        'or router client isolation can block pairing. Create a fresh QR after changing networks.',
+      );
     } on SocketException catch (error) {
-      throw PairingException('Could not reach ${invitation.hostAddress}: ${error.message}');
+      throw PairingException(
+        'Could not reach ${invitation.hostAddress}:${invitation.httpPort} (${error.message}). '
+        'Both devices must share the same Wi-Fi/LAN; mobile data alone, VPNs, guest Wi-Fi, '
+        'or router client isolation can block pairing. Create a fresh QR after changing networks.',
+      );
     } on FormatException {
       throw const PairingException('The pairing response was not valid Airbridge data.');
     } finally {

@@ -12,6 +12,7 @@ import '../models/peer.dart';
 import 'android_network_bridge.dart';
 import 'api_gateway.dart';
 import 'discovery_service.dart';
+import 'network_address_selector.dart';
 import 'pairing_service.dart';
 import 'task_worker.dart';
 
@@ -170,9 +171,15 @@ class NodeController extends ChangeNotifier {
     _recordLog('INFO', 'Airbridge node stopped.');
   }
 
-  Future<PairingInvitation> createPairingInvitation() {
-    if (!_started || _localAddress == 'Unavailable' || _localAddress == 'Resolving…') {
-      throw const PairingException('The node must be online on a local network to show a pairing QR.');
+  Future<PairingInvitation> createPairingInvitation() async {
+    if (!_started) {
+      throw const PairingException('Start the Airbridge node before showing a pairing QR.');
+    }
+    await _refreshLocalAddress();
+    if (_localAddress == 'Unavailable' || _localAddress == 'Resolving…') {
+      throw const PairingException(
+        'Connect this device to a reachable Wi-Fi/LAN before creating a pairing QR.',
+      );
     }
     return _pairing.createInvitation(
       hostAddress: _localAddress,
@@ -413,21 +420,34 @@ class NodeController extends ChangeNotifier {
   }
 
   Future<String> _resolveLocalAddress() async {
+    if (Platform.isAndroid) {
+      final wifiAddress = await AndroidNetworkBridge.getWifiIPv4Address();
+      if (wifiAddress != null) return wifiAddress;
+    }
+
     try {
       final interfaces = await NetworkInterface.list(
         type: InternetAddressType.IPv4,
         includeLoopback: false,
         includeLinkLocal: false,
       );
-      final candidates = <String>[];
-      for (final networkInterface in interfaces) {
-        for (final interfaceAddress in networkInterface.addresses) {
-          final address = interfaceAddress.address;
-          if (address.startsWith('127.') || address.startsWith('169.254.')) continue;
-          candidates.add(address);
-        }
+      final candidates = <NetworkAddressCandidate>[
+        for (final networkInterface in interfaces)
+          for (final interfaceAddress in networkInterface.addresses)
+            NetworkAddressCandidate(
+              interfaceName: networkInterface.name,
+              address: interfaceAddress.address,
+            ),
+      ];
+      final selected = selectPreferredIpv4Address(candidates);
+      if (selected != null) return selected;
+      if (_localAddress != 'Unavailable') {
+        _recordLog(
+          'WARN',
+          'No reachable IPv4 address found. Connect to Wi-Fi/LAN; '
+          'a cellular, VPN, or isolated network may not be reachable by the other device.',
+        );
       }
-      if (candidates.isNotEmpty) return candidates.first;
     } on SocketException catch (error) {
       _recordLog('WARN', 'Could not read local network address: $error');
     } on UnsupportedError catch (error) {

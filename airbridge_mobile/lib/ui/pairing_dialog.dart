@@ -3,11 +3,11 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
 import '../services/node_controller.dart';
 import '../services/pairing_service.dart';
+import 'pairing_qr_scanner.dart';
 
 const Color _pairPanel = Color(0xFF111827);
 const Color _pairBorder = Color(0xFF253247);
@@ -16,17 +16,26 @@ const Color _pairMuted = Color(0xFF92A0B8);
 
 Future<void> showPairingDialog(
   BuildContext context,
-  NodeController controller,
-) =>
+  NodeController controller, {
+  String? initialQrPayload,
+}) =>
     showDialog<void>(
       context: context,
-      builder: (_) => PairingDialog(controller: controller),
+      builder: (_) => PairingDialog(
+        controller: controller,
+        initialQrPayload: initialQrPayload,
+      ),
     );
 
 class PairingDialog extends StatefulWidget {
-  const PairingDialog({super.key, required this.controller});
+  const PairingDialog({
+    super.key,
+    required this.controller,
+    this.initialQrPayload,
+  });
 
   final NodeController controller;
+  final String? initialQrPayload;
 
   @override
   State<PairingDialog> createState() => _PairingDialogState();
@@ -42,12 +51,23 @@ class _PairingDialogState extends State<PairingDialog> {
   String? _error;
   String? _success;
 
-  bool get _canScan => Platform.isAndroid || Platform.isIOS;
+  bool get _canScan =>
+      Platform.isAndroid ||
+      Platform.isIOS ||
+      Platform.isMacOS ||
+      Platform.isWindows ||
+      Platform.isLinux;
 
   @override
   void initState() {
     super.initState();
     unawaited(_refreshInvitation());
+    final initialQrPayload = widget.initialQrPayload;
+    if (initialQrPayload != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _acceptQrPayload(initialQrPayload);
+      });
+    }
     _expiryTimer = Timer.periodic(const Duration(seconds: 1), (_) {
       if (mounted && _invitation != null) setState(() {});
     });
@@ -88,10 +108,8 @@ class _PairingDialogState extends State<PairingDialog> {
   }
 
   Future<void> _scanQr() async {
-    final payload = await Navigator.of(context).push<String>(
-      MaterialPageRoute<String>(builder: (_) => const _PairingQrScannerPage()),
-    );
-    if (payload != null) _acceptQrPayload(payload);
+    final payload = await scanAirbridgePairingQr(context);
+    if (payload != null && mounted) _acceptQrPayload(payload);
   }
 
   void _acceptQrPayload(String payload) {
@@ -202,6 +220,28 @@ class _PairingDialogState extends State<PairingDialog> {
               const Text(
                 'Scan this one-time QR from the other device, then compare the six-digit code. No account or password is needed.',
                 style: TextStyle(color: _pairMuted, height: 1.45),
+              ),
+              const SizedBox(height: 12),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF172132),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: _pairBorder),
+                ),
+                child: const Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    Icon(Icons.wifi_rounded, color: _pairMint, size: 18),
+                    SizedBox(width: 9),
+                    Expanded(
+                      child: Text(
+                        'Both devices must be on the same Wi-Fi/LAN. Mobile data, VPNs, guest Wi-Fi, or router client isolation can block pairing. After switching networks, create a fresh QR.',
+                        style: TextStyle(color: _pairMuted, fontSize: 12, height: 1.4),
+                      ),
+                    ),
+                  ],
+                ),
               ),
               const SizedBox(height: 18),
               _buildHostInvitation(invitation, inviteExpired),
@@ -342,7 +382,7 @@ class _PairingDialogState extends State<PairingDialog> {
         children: <Widget>[
           if (invitation == null)
             const Text(
-              'A local network address is required to create a pairing QR.',
+              'Connect this device to Wi-Fi/LAN and allow local-network access, then try again. Mobile data or a VPN alone cannot provide a reachable pairing address.',
               style: TextStyle(color: _pairMuted),
               textAlign: TextAlign.center,
             )
@@ -465,59 +505,4 @@ class _FeedbackMessage extends StatelessWidget {
       child: Text(message, style: TextStyle(color: color, fontSize: 12)),
     );
   }
-}
-
-class _PairingQrScannerPage extends StatefulWidget {
-  const _PairingQrScannerPage();
-
-  @override
-  State<_PairingQrScannerPage> createState() => _PairingQrScannerPageState();
-}
-
-class _PairingQrScannerPageState extends State<_PairingQrScannerPage> {
-  bool _didRead = false;
-
-  void _onDetect(BarcodeCapture capture) {
-    if (_didRead) return;
-    for (final barcode in capture.barcodes) {
-      final value = barcode.rawValue;
-      if (value != null && value.startsWith('airbridge://pair?')) {
-        _didRead = true;
-        Navigator.of(context).pop(value);
-        return;
-      }
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) => Scaffold(
-        backgroundColor: const Color(0xFF0B0F19),
-        appBar: AppBar(
-          title: const Text('Scan Airbridge QR'),
-          backgroundColor: const Color(0xFF111827),
-        ),
-        body: Stack(
-          fit: StackFit.expand,
-          children: <Widget>[
-            MobileScanner(onDetect: _onDetect),
-            Align(
-              alignment: Alignment.bottomCenter,
-              child: SafeArea(
-                minimum: const EdgeInsets.all(20),
-                child: Container(
-                  padding: const EdgeInsets.all(14),
-                  decoration: BoxDecoration(
-                    color: const Color(0xDD111827),
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-                  child: const Text(
-                    'Point the camera at the one-time pairing QR shown by the other device.',
-                    textAlign: TextAlign.center,
-                  ),
-                ),
-              ),
-            ),
-          ],
-        ),
-      );
 }
