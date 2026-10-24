@@ -1468,7 +1468,7 @@ class _BluetoothSectionState extends State<_BluetoothSection> {
         const SizedBox(height: 3),
         const _GlassPanel(
           child: Text(
-            'Airbridge uses the same BLE GATT service and encrypted packet protocol across supported OSs. Linux uses BlueZ for its GATT peripheral; keep the Bluetooth service running and use a Bluetooth LE adapter. BlueStacks Bluetooth passthrough depends on the host and emulator configuration.'
+            'Airbridge uses the same BLE GATT service and encrypted packet protocol across supported OSs. Linux uses BlueZ for its GATT peripheral; keep the Bluetooth service running and use a Bluetooth LE adapter. BlueStacks Bluetooth passthrough depends on the host and emulator configuration.',
             style: TextStyle(color: _muted, fontSize: 10, height: 1.5),
           ),
         ),
