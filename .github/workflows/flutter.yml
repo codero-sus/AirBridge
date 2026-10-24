@@ -51,8 +51,8 @@ jobs:
           test_exit=${PIPESTATUS[0]}
           if [[ $test_exit -ne 0 ]]; then
             while IFS= read -r diagnostic; do
-              [[ -z "$diagnostic" ]] || echo "::error::$diagnostic"
-            done < /tmp/flutter-test.log
+              [[ -z "$diagnostic" ]] || echo "::error title=Flutter test failure::$diagnostic"
+            done < <(tail -n 25 /tmp/flutter-test.log)
           fi
           exit "$test_exit"
 
