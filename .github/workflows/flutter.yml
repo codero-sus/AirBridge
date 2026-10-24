@@ -50,7 +50,7 @@ jobs:
           flutter test --reporter expanded 2>&1 | tee /tmp/flutter-test.log
           test_exit=${PIPESTATUS[0]}
           if [[ $test_exit -ne 0 ]]; then
-            diagnostics=$(grep -a -E -B 3 -A 25 'EXCEPTION CAUGHT|TestFailure|Expected:|Actual:|Test failed|Some tests failed' /tmp/flutter-test.log | tail -n 100 | tr '\n' ' ')
+            diagnostics=$(grep -a -E -B 3 -A 25 'EXCEPTION CAUGHT|TestFailure|Expected:|Actual:|Test failed|Some tests failed|FILE_TRANSFER_GATEWAY_SEND_ERROR|HttpException|SocketException|TimeoutException' /tmp/flutter-test.log | tail -n 100 | tr '\n' ' ')
             if [[ -z "$diagnostics" ]]; then
               diagnostics=$(tail -n 25 /tmp/flutter-test.log | tr '\n' ' ')
             fi
