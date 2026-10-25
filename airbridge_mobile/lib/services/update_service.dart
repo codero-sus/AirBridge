@@ -761,7 +761,7 @@ class AutoUpdateService extends ChangeNotifier {
 
     final helper = File(
       '${Directory.systemTemp.path}${Platform.pathSeparator}'
-      'airbridge-update-${Platform.pid}.ps1',
+      'airbridge-update-${pid}.ps1',
     );
     final arguments = <String>[
       '/VERYSILENT',
@@ -785,7 +785,7 @@ class AutoUpdateService extends ChangeNotifier {
     final launchArray = launchArguments.map(_powerShellLiteral).join(', ');
     final script = '''
 \$ErrorActionPreference = 'Stop'
-\$oldPid = ${Platform.pid}
+\$oldPid = ${pid}
 \$installerPath = ${_powerShellLiteral(installer.path)}
 \$appPath = ${_powerShellLiteral(executable.path)}
 \$installDir = ${_powerShellLiteral(installDirectory.path)}
@@ -862,7 +862,7 @@ Remove-Item -LiteralPath \$MyInvocation.MyCommand.Path -Force -ErrorAction Silen
     }
 
     final replacement = File(
-      '${appImage.path}.airbridge-new-${Platform.pid}',
+      '${appImage.path}.airbridge-new-${pid}',
     );
     await package.copy(replacement.path);
     final chmod = await Process.run('chmod', <String>['0755', replacement.path]);
@@ -910,7 +910,7 @@ Remove-Item -LiteralPath \$MyInvocation.MyCommand.Path -Force -ErrorAction Silen
 
     final helper = File(
       '${Directory.systemTemp.path}${Platform.pathSeparator}'
-      'airbridge-update-${Platform.pid}.sh',
+      'airbridge-update-${pid}.sh',
     );
     final stateSuccess = jsonEncode(<String, Object?>{
       'latestTag': pending.tagName,
@@ -926,7 +926,7 @@ Remove-Item -LiteralPath \$MyInvocation.MyCommand.Path -Force -ErrorAction Silen
     final script = '''
 #!/bin/sh
 set -eu
-old_pid=${Platform.pid}
+old_pid=${pid}
 while kill -0 "\$old_pid" 2>/dev/null; do sleep 1; done
 dmg=${_shellQuote(diskImage.path)}
 target=${_shellQuote(appPath)}
@@ -994,7 +994,7 @@ rm -rf "\$backup"
   Future<bool> _isDirectoryWritable(Directory directory) async {
     final probe = File(
       '${directory.path}${Platform.pathSeparator}'
-      '.airbridge-update-write-test-${Platform.pid}-${DateTime.now().microsecondsSinceEpoch}',
+      '.airbridge-update-write-test-${pid}-${DateTime.now().microsecondsSinceEpoch}',
     );
     try {
       await probe.writeAsString('Airbridge update permission check', flush: true);
