@@ -152,10 +152,10 @@ The `777+` request is being treated as a multi-release engineering program, not 
 
 ## Wave 10 — Pre-release automatic updates (122–125)
 
-- [ ] **122** Add a GitHub pre-release-only checker with SemVer comparison, twelve-hour background checks, Settings status, and SHA-256-verified desktop downloads.
-- [ ] **123** Apply staged Windows per-user, Linux AppImage, and writable macOS bundle updates at launch without an app prompt or privilege escalation.
-- [ ] **124** Report Android/iOS update availability and OS-managed distribution requirements without attempting prohibited silent installs.
-- [ ] **125** Validate installs and restarts from real Windows, Linux AppImage, and macOS release packages; confirm Play/App Store or MDM distribution separately before promising unattended mobile installs.
+- [x] **122** Add a GitHub pre-release-only checker with SemVer comparison, twelve-hour background checks, Settings status, and SHA-256-verified desktop downloads; unit tests and cross-platform build CI passed in run `40169837564`.
+- [ ] **123** Apply staged Windows per-user, Linux AppImage, and writable macOS bundle updates at launch without an app prompt or privilege escalation; code and desktop builds are present, but end-to-end updater restarts still need installed-package validation.
+- [x] **124** Report Android/iOS update availability and OS-managed distribution requirements without attempting prohibited silent installs; mobile-policy unit test passed in run `40169837564`.
+- [ ] **125** Validate real Windows, Linux AppImage, and macOS update/restart cycles; confirm Play/App Store or MDM distribution separately before promising unattended mobile installs.
 
 ## Delivery rules
 
