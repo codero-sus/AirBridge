@@ -1758,6 +1758,16 @@ class _DocsSection extends StatelessWidget {
               'LAN discovery and basic node status are local control data. Do not expose Airbridge ports to the public internet.',
             ],
           ),
+          SizedBox(height: 12),
+          _DocCard(
+            icon: Icons.system_update_alt_rounded,
+            title: '5. Automatic updates',
+            bullets: <String>[
+              'Official GitHub release builds check the pre-release channel in the background, download a matching desktop package, and verify its SHA-256 checksum. No update dialog is shown.',
+              'Windows, macOS, and the Linux AppImage apply a verified package on the next launch; installs are attempted only when the current app folder is writable, so no administrator prompt is requested.',
+              'Android blocks silent sideload installation, and iOS apps must be updated by the App Store or device management. Airbridge reports these OS limits and never opens an install prompt.',
+            ],
+          ),
         ],
       );
 }
@@ -1777,6 +1787,39 @@ class _DocCard extends StatelessWidget {
             _PanelHeading(icon: icon, title: title, detail: ''),
             const SizedBox(height: 10),
             ...bullets.map((bullet) => _InfoBullet(text: bullet)),
+          ],
+        ),
+      );
+}
+
+class _UpdateStatusLine extends StatelessWidget {
+  const _UpdateStatusLine({required this.label, required this.value});
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+        padding: const EdgeInsets.only(bottom: 5),
+        child: Row(
+          children: <Widget>[
+            SizedBox(
+              width: 122,
+              child: Text(
+                label,
+                style: const TextStyle(color: _muted, fontSize: 10),
+              ),
+            ),
+            Expanded(
+              child: SelectableText(
+                value,
+                style: const TextStyle(
+                  color: Color(0xFFE5EAF3),
+                  fontSize: 10,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
           ],
         ),
       );
@@ -1924,6 +1967,45 @@ class _SettingsSectionState extends State<_SettingsSection> {
               const SizedBox(height: 8),
               SelectableText('Device ID  ${widget.controller.config.deviceId}',
                   style: const TextStyle(color: _muted, fontSize: 10)),
+            ],
+          ),
+        ),
+        const SizedBox(height: 13),
+        _GlassPanel(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              const _PanelHeading(
+                icon: Icons.system_update_alt_rounded,
+                title: 'Automatic updates',
+                detail: 'Checks GitHub pre-releases quietly and installs desktop updates when the OS allows it.',
+              ),
+              const SizedBox(height: 10),
+              _UpdateStatusLine(
+                label: 'Installed release',
+                value: widget.controller.updates.currentVersionLabel,
+              ),
+              if (widget.controller.updates.latestTag != null)
+                _UpdateStatusLine(
+                  label: 'Latest pre-release',
+                  value: widget.controller.updates.latestTag!,
+                ),
+              const SizedBox(height: 8),
+              Text(
+                widget.controller.updates.status,
+                style: const TextStyle(color: _muted, fontSize: 10, height: 1.45),
+              ),
+              if (widget.controller.updates.isChecking) ...<Widget>[
+                const SizedBox(height: 8),
+                const LinearProgressIndicator(minHeight: 2),
+              ],
+              if (widget.controller.updates.lastCheckedAt != null) ...<Widget>[
+                const SizedBox(height: 7),
+                Text(
+                  'Last checked ${widget.controller.updates.lastCheckedAt!.toLocal().toString().split('.').first}',
+                  style: const TextStyle(color: _muted, fontSize: 9),
+                ),
+              ],
             ],
           ),
         ),

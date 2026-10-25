@@ -150,6 +150,13 @@ The `777+` request is being treated as a multi-release engineering program, not 
 - [x] **120** Add focused AES-GCM, file-store, encrypted HTTP/WebSocket, settings, and navigation tests; validate with Flutter analyze, tests, and platform builds in CI (run `40083540267` passed).
 - [ ] **121** Verify real-device transfers across Android, Windows, iOS, macOS, and Linux (BlueZ); protect the confirmed BlueStacks-to-Windows LAN pairing path. Linux now has a BlueZ GATT peripheral adapter plus adapter/protocol tests; cross-platform CI passed in run `40094958383`, while physical BLE hardware and emulator passthrough remain unverified.
 
+## Wave 10 — Pre-release automatic updates (122–125)
+
+- [ ] **122** Add a GitHub pre-release-only checker with SemVer comparison, twelve-hour background checks, Settings status, and SHA-256-verified desktop downloads.
+- [ ] **123** Apply staged Windows per-user, Linux AppImage, and writable macOS bundle updates at launch without an app prompt or privilege escalation.
+- [ ] **124** Report Android/iOS update availability and OS-managed distribution requirements without attempting prohibited silent installs.
+- [ ] **125** Validate installs and restarts from real Windows, Linux AppImage, and macOS release packages; confirm Play/App Store or MDM distribution separately before promising unattended mobile installs.
+
 ## Delivery rules
 
 1. A checked item must have an implementation and a focused test or reproducible verification.

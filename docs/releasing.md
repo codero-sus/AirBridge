@@ -7,12 +7,18 @@ Airbridge publishes installable release assets directly to the GitHub **Releases
 | Asset | What it is | Install/use |
 | --- | --- | --- |
 | `Airbridge-Android.apk` | Android APK for direct sideloading; built for the standard Flutter Android target architectures | Transfer to the device and open it, or run `adb install -r Airbridge-Android.apk`. Android may ask you to allow installs from that source. This is not a Play Store upload. |
-| `Airbridge-Windows-Setup-X.Y.Z.exe` | x64 Inno Setup installer containing **the whole** Flutter `Release` directory, including the runner, DLLs, and `data` directory | Run the installer and launch Airbridge from the Start menu. Do not download/use only `airbridge_mobile.exe` from a raw Flutter build folder. |
+| `Airbridge-Windows-Setup-X.Y.Z.exe` | x64 per-user Inno Setup installer containing **the whole** Flutter `Release` directory, including the runner, DLLs, and `data` directory | Run the installer and launch Airbridge from the Start menu. Official releases can install verified updates silently in a writable per-user folder; a protected legacy machine-wide installation is never elevated. Do not download/use only `airbridge_mobile.exe` from a raw Flutter build folder. |
 | `Airbridge-Linux-x86_64.AppImage` | x86_64 AppImage made from the full Flutter bundle with its shared-library dependencies collected | Run `chmod +x Airbridge-Linux-x86_64.AppImage`, then launch it. A desktop Linux environment is required. |
-| `Airbridge-macOS.dmg` | DMG containing `Airbridge.app` and an Applications shortcut | Open the DMG and drag Airbridge to Applications. |
+| `Airbridge-macOS.dmg` | DMG containing `Airbridge.app` and an Applications shortcut | Open the DMG and copy Airbridge to a writable Applications folder. A per-user `~/Applications` install can self-update without administrator approval; a protected system `/Applications` install may not. |
 | `SHA256SUMS.txt` | SHA-256 manifest for the four download assets | Verify after downloading; commands are below. |
 
 The assets are not currently signed with platform-native release certificates. Windows may show SmartScreen, macOS is not notarized and may require Control-click → **Open**, and the Android APK is intended for sideloading. Each asset (including the checksum manifest) receives a signed GitHub build-provenance attestation; this authenticates the workflow/source identity but is not a substitute for Authenticode, Apple notarization, or a Play signing key. iOS is built unsigned in CI but is not published as an installable release because distribution requires an Apple signing team/profile and Apple's multicast entitlement.
+
+## Automatic update policy
+
+Release builds embed their exact Git tag and check the GitHub **pre-release** channel at startup and every twelve hours. The updater downloads a platform package, compares its SHA-256 digest with that release's `SHA256SUMS.txt`, and stages it without displaying an update dialog. Windows, macOS, and the official Linux AppImage apply a verified package automatically on the next launch. Updates are attempted only when the current install path is writable; no UAC/admin dialog or privilege escalation is requested. Windows installers are per-user. macOS direct-download builds are unsandboxed so a writable app bundle can be replaced; for installs in a protected system `/Applications` folder, use a per-user `~/Applications` location if silent updates are required. Linux automatic replacement is supported only for an app launched from the official x86_64 AppImage. The updater does not bypass SmartScreen, Gatekeeper, antivirus, or other OS security checks; unsigned/unnotarized packages may be blocked or require the OS to approve the app first.
+
+Android direct APK sideloads cannot be silently installed by an ordinary consumer app, so Airbridge reports a newer pre-release but deliberately does not open the Android package installer. iOS updates must be delivered by the App Store/TestFlight or device management; Airbridge cannot replace its iOS app bundle. No silent mobile update is claimed: a no-touch deployment requires an OS-managed store or managed-device channel. The current GitHub release workflow publishes no iOS installable package. Existing binaries built before this updater was added need one normal manual update; an installed app cannot retroactively acquire new updater code. SHA-256 verifies the download against the release manifest; users requiring independent provenance validation should also verify the GitHub attestation with `gh attestation verify`.
 
 ## Pairing links and cameras in release builds
 
@@ -85,13 +91,13 @@ Run the same command once for each asset, replacing the filename with that exact
 
 ## Build the release packages locally
 
-Run the matching Flutter build on its native host, after the standard bootstrap in [`airbridge_mobile/build_instructions.md`](../airbridge_mobile/build_instructions.md). These scripts package the full desktop outputs; they do not upload or publish anything.
+Run the matching Flutter build on its native host, after the standard bootstrap in [`airbridge_mobile/build_instructions.md`](../airbridge_mobile/build_instructions.md). These scripts package the full desktop outputs; they do not upload or publish anything. To participate in the automatic pre-release updater, embed the exact Git tag in each package using `--dart-define=AIRBRIDGE_RELEASE_TAG=v4.0.0-preview.1` (replace it with the tag being built). The release workflow injects its actual tag automatically; builds without this define do not run the updater.
 
 ### Android APK (Windows, macOS, or Linux)
 
 ```bash
 cd airbridge_mobile
-flutter build apk --release
+flutter build apk --release --dart-define=AIRBRIDGE_RELEASE_TAG=v4.0.0-preview.1
 # Output: build/app/outputs/flutter-apk/app-release.apk
 ```
 
@@ -101,7 +107,7 @@ Install Visual Studio 2022 with **Desktop development with C++**, build the full
 
 ```powershell
 cd airbridge_mobile
-flutter build windows --release
+flutter build windows --release --dart-define=AIRBRIDGE_RELEASE_TAG=v4.0.0-preview.1
 choco install innosetup --yes --no-progress
 .\tool\package_windows_installer.ps1 -AppVersion 4.0.0 -OutputDirectory .\build\release
 ```
@@ -114,7 +120,7 @@ Install Flutter and AppImage packaging dependencies (`clang`, `cmake`, `ninja-bu
 
 ```bash
 cd airbridge_mobile
-flutter build linux --release
+flutter build linux --release --dart-define=AIRBRIDGE_RELEASE_TAG=v4.0.0-preview.1
 ./tool/package_linux_appimage.sh ./build/release
 ```
 
@@ -126,7 +132,7 @@ With Xcode and CocoaPods installed:
 
 ```bash
 cd airbridge_mobile
-flutter build macos --release
+flutter build macos --release --dart-define=AIRBRIDGE_RELEASE_TAG=v4.0.0-preview.1
 ./tool/package_macos_dmg.sh ./build/release
 ```
 

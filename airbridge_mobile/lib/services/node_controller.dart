@@ -19,9 +19,13 @@ import 'network_address_selector.dart';
 import 'pairing_service.dart';
 import 'settings_store.dart';
 import 'task_worker.dart';
+import 'update_service.dart';
 
 class NodeController extends ChangeNotifier {
-  NodeController(this.config) {
+  NodeController(this.config, {AutoUpdateService? updateService})
+      : _updateService = updateService ??
+            AutoUpdateService(supportDirectory: config.supportDirectory) {
+    _updateService.addListener(_notify);
     _masterId = config.deviceId;
     _pairing = PairingService(
       config: config,
@@ -43,6 +47,7 @@ class NodeController extends ChangeNotifier {
   }
 
   final NodeConfig config;
+  final AutoUpdateService _updateService;
   late final PairingService _pairing;
   late final SettingsStore _settingsStore;
   late final FileTransferStore _fileStore;
@@ -79,6 +84,7 @@ class NodeController extends ChangeNotifier {
   List<TrustedPeer> get trustedPeers => _pairing.trustedPeers;
   AirbridgeSettings get settings => _settings;
   BluetoothTransferService get bluetooth => _bluetooth;
+  AutoUpdateService get updates => _updateService;
   List<FileTransferRecord> get receivedFiles => _fileStore.records;
   String get receivedFilesDirectory => _fileStore.receivedDirectoryPath;
   int get connectedPeerCount => _gateway?.connectedPeerIds.length ?? 0;
@@ -650,6 +656,8 @@ class NodeController extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
+    _updateService.removeListener(_notify);
+    _updateService.dispose();
     unawaited(stop());
     super.dispose();
   }

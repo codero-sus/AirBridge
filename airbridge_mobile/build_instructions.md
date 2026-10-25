@@ -55,7 +55,7 @@ For Windows, install Visual Studio 2022 (not just Visual Studio Code) and select
 
 > Build on the target desktop OS: Windows executables on Windows, Linux bundles on Linux, and macOS/iOS on macOS. Android APKs can be built from any supported desktop host. The Android SDK/JDK, Visual Studio C++ workload, Linux packages, Xcode, and CocoaPods are native build dependencies; Flutter and Dart alone are not sufficient.
 
-The generated native host projects are intentionally the standard Flutter templates. The bootstrap scripts generate them and apply the checked-in network/camera permissions, native bridge, Apple entitlements and URL declarations, plus Windows/Linux single-instance URL forwarding; they also install the official app icons.
+The generated native host projects are intentionally the standard Flutter templates. The bootstrap scripts generate them and apply the checked-in network/camera permissions, native bridge, Apple entitlements and URL declarations, plus Windows/Linux single-instance URL forwarding; they also install the official app icons. The macOS DMG build is an unsandboxed direct-download app (not eligible for Mac App Store submission) so a writable user-installed app bundle can be updated in place.
 
 ## 2. Bootstrap once
 
@@ -151,7 +151,7 @@ choco install innosetup --yes --no-progress
 .\tool\package_windows_installer.ps1 -AppVersion 4.0.0 -OutputDirectory .\build\release
 ```
 
-Replace `4.0.0` with the version in `pubspec.yaml`. The installer is `build\release\Airbridge-Windows-Setup-4.0.0.exe` and contains the entire Flutter `Release` folder. It registers the `airbridge://` URL protocol and removes that registration on uninstall. Test it after installation with `Start-Process 'airbridge://pair?test=1'`. For webcam scanning, choose the wired camera from the scanner's camera menu and enable **Settings → Privacy & security → Camera → Let desktop apps access your camera**. Windows Defender Firewall may prompt for permission to accept inbound connections; allow Airbridge on the trusted private LAN profile.
+Replace `4.0.0` with the version in `pubspec.yaml`. The installer is `build\release\Airbridge-Windows-Setup-4.0.0.exe` and contains the entire Flutter `Release` folder. It installs per-user without an administrator prompt, registers the `airbridge://` URL protocol for that user, and removes that registration on uninstall. Official release builds can install verified updates automatically in writable per-user locations; older machine-wide installs are never silently elevated. Test the protocol after installation with `Start-Process 'airbridge://pair?test=1'`. For webcam scanning, choose the wired camera from the scanner's camera menu and enable **Settings → Privacy & security → Camera → Let desktop apps access your camera**. Windows Defender Firewall may prompt for permission to accept inbound connections; allow Airbridge on the trusted private LAN profile.
 
 ## 6. Linux
 
@@ -197,7 +197,7 @@ The app is under `build/macos/Build/Products/Release/`. Package it as a drag-to-
 ./tool/package_macos_dmg.sh ./build/release
 ```
 
-The output is `build/release/Airbridge-macOS.dmg`. It is not code-signed or notarized yet. The bundle registers `airbridge://` and declares camera/network access; macOS may ask for Camera and Local Network permissions, which must be approved for QR scanning and peer connections. After copying Airbridge into Applications, test with `open 'airbridge://pair?test=1'`. The bootstrap adds client/server network and camera entitlements for the generated macOS sandbox profile.
+The output is `build/release/Airbridge-macOS.dmg`. It is not code-signed or notarized yet. The bundle registers `airbridge://` and declares camera/network access; macOS may ask for Camera and Local Network permissions, which must be approved for QR scanning and peer connections. After copying Airbridge into Applications, test with `open 'airbridge://pair?test=1'`. Direct-download macOS builds are unsandboxed so the updater can replace a writable user-installed app bundle; installing into a protected `/Applications` folder may require a one-time manual reinstall into `~/Applications` before silent updates can apply.
 
 ## 8. iOS
 
@@ -219,6 +219,12 @@ Open `ios/Runner.xcworkspace` in Xcode to select the signing team and install on
 ## 9. Versioned GitHub releases
 
 Stable releases are published from matching `vMAJOR.MINOR.PATCH` tags on `main`; pre-releases may be published from matching `vMAJOR.MINOR.PATCH-label[.number...]` tags on an open PR head. GitHub Releases contain the separate native Android APK, Windows setup `.exe` (including the full Flutter runtime bundle), Linux x86_64 AppImage, macOS DMG, SHA-256 checksums, and signed provenance attestations—never a ZIP. CI and release runs upload the raw, unencrypted `Airbridge-All-Platforms.zip` as a seven-day Actions artifact; PR CI also includes an explicitly unsigned iOS `.app` archive for developer inspection. iOS requires Apple signing/profile setup and is never included as an installable public release. See [`docs/releasing.md`](../docs/releasing.md) for exact tag commands, package builds, installation, and checksum/attestation verification.
+
+### Automatic update policy
+
+Official tagged release builds check GitHub **pre-releases only** at startup and every twelve hours while running. They download the matching desktop installer/package, verify its SHA-256 against that release's `SHA256SUMS.txt`, and stage it without showing an update dialog; installation is applied automatically at the next launch. Windows uses a per-user install and will not elevate a legacy machine-wide installation. Linux self-updates only when launched from the official AppImage. macOS self-updates only when the `.app` and its parent folder are writable (for example, a per-user `~/Applications` install); no administrator prompt is requested. Development/CI builds without an official release tag do not update.
+
+Android can check and report a newer APK, but Android requires OS approval to install a directly sideloaded APK, so Airbridge intentionally does not open an installer prompt. iOS updates must be managed by the App Store, TestFlight, or device management; an app cannot replace its own iOS bundle. Truly unattended mobile updates therefore require an OS-managed distribution channel. The updater does not bypass SmartScreen, Gatekeeper, antivirus, or OS security checks, so unsigned/unnotarized downloads may be blocked or require prior OS approval. The first upgrade from a binary built before this updater existed must be installed manually. Older installations made with the previous machine-wide Windows installer or protected macOS install locations may also need a one-time manual reinstall into a writable per-user location before background installation can work.
 
 ## 10. API smoke test
 
@@ -277,6 +283,10 @@ The WebSocket endpoint is `ws://<node-ip>:8765/ws`. The server first sends a ran
 Defaults are TCP `8765` and UDP `47660`, configurable with `--dart-define=AIRBRIDGE_HTTP_PORT=...` and `--dart-define=AIRBRIDGE_UDP_PORT=...` (use the same UDP port across a LAN). Both listeners bind to `0.0.0.0`. UDP beacons advertise the service identifier `_airbridge._tcp.local.` and include the node's TCP port. Wi-Fi AP/client isolation, VPNs, host firewalls, iOS Local Network consent, and Android battery/background policies can prevent discovery or continuous availability.
 
 ## 11. Troubleshooting
+
+### Automatic update did not install
+
+Open **Settings → Automatic updates** to see the installed tag, latest pre-release, and last check. The updater requires an official tagged release build and an internet connection to `api.github.com` and GitHub release assets. A desktop update is staged silently, then applied on the next launch; Windows must be installed per-user, Linux must be running from the official AppImage, and macOS must be in a writable app bundle (a protected `/Applications` location is not modified). Android reports available APKs but does not launch Android's confirmation installer. iOS must be updated through the App Store or device management.
 
 ### Peers do not appear
 

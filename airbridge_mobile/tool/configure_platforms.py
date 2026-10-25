@@ -263,6 +263,10 @@ def update_ios_entitlements(values: dict) -> None:
 
 
 def update_macos_entitlements(values: dict) -> None:
+    # Airbridge ships as a direct DMG download rather than through the Mac App
+    # Store. The release updater replaces the app bundle in place, which the
+    # App Sandbox forbids even for a user-writable ~/Applications install.
+    values["com.apple.security.app-sandbox"] = False
     values["com.apple.security.network.client"] = True
     values["com.apple.security.network.server"] = True
     values["com.apple.security.device.camera"] = True

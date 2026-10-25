@@ -21,7 +21,8 @@ OutputBaseFilename=Airbridge-Windows-Setup-{#AppVersion}
 Compression=lzma2/ultra64
 SolidCompression=yes
 WizardStyle=modern
-PrivilegesRequired=admin
+; Per-user installation lets the background updater run without elevation prompts.
+PrivilegesRequired=lowest
 ArchitecturesAllowed=x64
 ArchitecturesInstallIn64BitMode=x64
 DisableProgramGroupPage=yes
@@ -39,10 +40,10 @@ Name: "{autoprograms}\Airbridge"; Filename: "{app}\airbridge_mobile.exe"; Workin
 Name: "{autodesktop}\Airbridge"; Filename: "{app}\airbridge_mobile.exe"; WorkingDir: "{app}"; Tasks: desktopicon
 
 [Registry]
-Root: HKCR; Subkey: "airbridge"; ValueType: string; ValueName: ""; ValueData: "URL:Airbridge Protocol"; Flags: uninsdeletekey
-Root: HKCR; Subkey: "airbridge"; ValueType: string; ValueName: "URL Protocol"; ValueData: ""; Flags: uninsdeletevalue
-Root: HKCR; Subkey: "airbridge\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: """{app}\airbridge_mobile.exe"",0"
-Root: HKCR; Subkey: "airbridge\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\airbridge_mobile.exe"" ""%1"""
+Root: HKA; Subkey: "airbridge"; ValueType: string; ValueName: ""; ValueData: "URL:Airbridge Protocol"; Flags: uninsdeletekey
+Root: HKA; Subkey: "airbridge"; ValueType: string; ValueName: "URL Protocol"; ValueData: ""; Flags: uninsdeletevalue
+Root: HKA; Subkey: "airbridge\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: """{app}\airbridge_mobile.exe"",0"
+Root: HKA; Subkey: "airbridge\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\airbridge_mobile.exe"" ""%1"""
 
 [Run]
 Filename: "{app}\airbridge_mobile.exe"; Description: "Launch Airbridge"; Flags: postinstall nowait skipifsilent

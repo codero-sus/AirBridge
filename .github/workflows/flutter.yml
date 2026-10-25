@@ -176,6 +176,29 @@ jobs:
           $appVersion = $versionMatch.Groups[1].Value
           .\tool\package_windows_installer.ps1 -AppVersion $appVersion -OutputDirectory (Join-Path $env:RUNNER_TEMP 'release-assets')
 
+      - name: Smoke-test silent per-user Windows installation
+        if: matrix.target == 'windows'
+        shell: pwsh
+        run: |
+          $versionLine = Get-Content pubspec.yaml | Where-Object { $_ -match '^version:' } | Select-Object -First 1
+          $versionMatch = [regex]::Match($versionLine, '^version:\s*(\d+\.\d+\.\d+)')
+          if (-not $versionMatch.Success) { throw 'Could not read X.Y.Z from pubspec.yaml version.' }
+          $appVersion = $versionMatch.Groups[1].Value
+          $installer = Join-Path $env:RUNNER_TEMP "release-assets\Airbridge-Windows-Setup-$appVersion.exe"
+          $installDirectory = Join-Path $env:RUNNER_TEMP 'Airbridge user install smoke test'
+          $install = Start-Process -FilePath $installer -ArgumentList @(
+            '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', "/DIR=`"$installDirectory`""
+          ) -Wait -PassThru
+          if ($install.ExitCode -ne 0) { throw "Silent per-user installation failed: $($install.ExitCode)" }
+          if (-not (Test-Path (Join-Path $installDirectory 'airbridge_mobile.exe'))) {
+            throw 'The silent installer did not deploy the Flutter executable.'
+          }
+          $uninstaller = Join-Path $installDirectory 'unins000.exe'
+          $uninstall = Start-Process -FilePath $uninstaller -ArgumentList @(
+            '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART'
+          ) -Wait -PassThru
+          if ($uninstall.ExitCode -ne 0) { throw "Silent uninstall failed: $($uninstall.ExitCode)" }
+
       - name: Build macOS desktop
         if: matrix.target == 'macos'
         run: flutter build macos --release

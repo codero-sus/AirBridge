@@ -6,6 +6,7 @@ import 'config/node_config.dart';
 import 'services/airbridge_link.dart';
 import 'services/airbridge_link_source.dart';
 import 'services/node_controller.dart';
+import 'services/update_service.dart';
 import 'ui/dashboard_page.dart';
 import 'ui/pairing_dialog.dart';
 
@@ -14,10 +15,12 @@ class AirbridgeApp extends StatefulWidget {
     super.key,
     required this.config,
     required this.linkSource,
+    this.updateService,
   });
 
   final NodeConfig config;
   final AirbridgeLinkSource linkSource;
+  final AutoUpdateService? updateService;
 
   @override
   State<AirbridgeApp> createState() => _AirbridgeAppState();
@@ -35,7 +38,11 @@ class _AirbridgeAppState extends State<AirbridgeApp> {
   @override
   void initState() {
     super.initState();
-    _controller = NodeController(widget.config);
+    _controller = NodeController(
+      widget.config,
+      updateService: widget.updateService,
+    );
+    _controller.updates.startBackgroundChecks();
     _startup = _controller.start();
     _linkSubscription = widget.linkSource.stream.listen(
       _handleIncomingUri,

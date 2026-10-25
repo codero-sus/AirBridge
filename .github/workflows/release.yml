@@ -88,7 +88,7 @@ jobs:
         run: bash ./tool/bootstrap_platforms.sh
 
       - name: Build release APK
-        run: flutter build apk --release
+        run: flutter build apk --release --dart-define="AIRBRIDGE_RELEASE_TAG=$GITHUB_REF_NAME"
 
       - name: Stage Android release asset
         shell: bash
@@ -132,7 +132,7 @@ jobs:
         run: bash ./tool/bootstrap_platforms.sh
 
       - name: Build Linux release bundle
-        run: flutter build linux --release
+        run: flutter build linux --release --dart-define="AIRBRIDGE_RELEASE_TAG=$GITHUB_REF_NAME"
 
       - name: Package a self-contained Linux AppImage
         run: ./tool/package_linux_appimage.sh "$RUNNER_TEMP/release-assets"
@@ -168,7 +168,7 @@ jobs:
         run: .\tool\bootstrap_platforms.ps1
 
       - name: Build Windows release bundle
-        run: flutter build windows --release
+        run: flutter build windows --release --dart-define="AIRBRIDGE_RELEASE_TAG=$env:GITHUB_REF_NAME"
 
       - name: Install Inno Setup 6
         shell: pwsh
@@ -210,7 +210,7 @@ jobs:
         run: bash ./tool/bootstrap_platforms.sh
 
       - name: Build macOS release app
-        run: flutter build macos --release
+        run: flutter build macos --release --dart-define="AIRBRIDGE_RELEASE_TAG=$GITHUB_REF_NAME"
 
       - name: Package the app as a DMG
         run: ./tool/package_macos_dmg.sh "$RUNNER_TEMP/release-assets"
@@ -328,6 +328,8 @@ jobs:
           - **Checksums:** \`SHA256SUMS.txt\`
 
           Verify the downloaded files from the directory containing the assets with \`sha256sum --check SHA256SUMS.txt\`. GitHub build-provenance attestations are also attached; verify an asset with \`gh attestation verify Airbridge-Android.apk --repo codero-sus/AirBridge\` using a recent GitHub CLI (repeat with the exact filename of each asset).
+
+          Official desktop builds check GitHub pre-releases in the background, verify downloaded packages against \`SHA256SUMS.txt\`, and install them on the next launch when their install folder is writable. Windows uses a per-user installer; Linux auto-update is for the AppImage; macOS requires a writable app bundle. Android sideloaded APKs cannot be silently installed by a regular app, and iOS updates require the App Store or device management; no mobile install prompt is opened.
 
           These packages are not platform-code-signed or notarized. Windows may show SmartScreen, and macOS may require Control-click → Open. The Android APK is for direct sideloading, not a Play Store upload. iOS distribution is omitted because it requires an Apple signing team, profile, and multicast entitlement.
           EOF
