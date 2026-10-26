@@ -1768,6 +1768,15 @@ class _DocsSection extends StatelessWidget {
               'Android blocks silent sideload installation, and iOS apps must be updated by the App Store or device management. Airbridge reports these OS limits and never opens an install prompt.',
             ],
           ),
+          SizedBox(height: 12),
+          _DocCard(
+            icon: Icons.person_outline_rounded,
+            title: '6. Credits and websites',
+            bullets: <String>[
+              'Created by @codero-sus. GitHub: https://github.com/codero-sus',
+              'Websites: https://the-codero.web.app and https://codero.is-a.dev',
+            ],
+          ),
         ],
       );
 }

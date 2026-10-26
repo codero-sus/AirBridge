@@ -110,6 +110,20 @@ void main() {
     );
   });
 
+  testWidgets('Docs display maintainer credit and website links', (tester) async {
+    await _expectDesktopSection(
+      tester,
+      label: 'Docs',
+      sectionTitle: 'Airbridge docs',
+    );
+    await tester.drag(find.byType(ListView), const Offset(0, -1400));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('@codero-sus'), findsOneWidget);
+    expect(find.textContaining('the-codero.web.app'), findsOneWidget);
+    expect(find.textContaining('codero.is-a.dev'), findsOneWidget);
+  });
+
   testWidgets('desktop sidebar opens Settings', (tester) async {
     await _expectDesktopSection(
       tester,
