@@ -245,41 +245,75 @@ class _DashboardPageState extends State<DashboardPage> {
                       const SizedBox(width: 6),
                     ],
                   ),
-            body: SafeArea(
-              top: wide,
-              child: Row(
-                children: <Widget>[
-                  if (wide)
-                    _Sidebar(
-                      width: 252,
-                      controller: widget.controller,
-                      selectedSection: _section,
-                      onSelect: (section) => _selectSection(
-                        section,
-                        closeDrawer: false,
+            body: DecoratedBox(
+              decoration: const BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: <Color>[
+                    Color(0xFF0E1522),
+                    _background,
+                    Color(0xFF0A0F18),
+                  ],
+                ),
+              ),
+              child: SafeArea(
+                top: wide,
+                child: Row(
+                  children: <Widget>[
+                    if (wide)
+                      _Sidebar(
+                        width: 252,
+                        controller: widget.controller,
+                        selectedSection: _section,
+                        onSelect: (section) => _selectSection(
+                          section,
+                          closeDrawer: false,
+                        ),
+                        onPair: () => unawaited(
+                          _openPairing(closeDrawer: false),
+                        ),
                       ),
-                      onPair: () => unawaited(
-                        _openPairing(closeDrawer: false),
+                    Expanded(
+                      child: Padding(
+                        padding: EdgeInsets.fromLTRB(
+                          wide ? 26 : 15,
+                          wide ? 18 : 10,
+                          wide ? 26 : 15,
+                          wide ? 22 : 15,
+                        ),
+                        child: Column(
+                          children: <Widget>[
+                            _NodeHeader(controller: widget.controller),
+                            const SizedBox(height: 16),
+                            Expanded(
+                              child: AnimatedSwitcher(
+                                duration: const Duration(milliseconds: 240),
+                                switchInCurve: Curves.easeOutCubic,
+                                switchOutCurve: Curves.easeInCubic,
+                                transitionBuilder: (child, animation) =>
+                                    FadeTransition(
+                                  opacity: animation,
+                                  child: SlideTransition(
+                                    position: Tween<Offset>(
+                                      begin: const Offset(.012, 0),
+                                      end: Offset.zero,
+                                    ).animate(animation),
+                                    child: child,
+                                  ),
+                                ),
+                                child: KeyedSubtree(
+                                  key: ValueKey<_DashboardSection>(_section),
+                                  child: _buildSection(wide: wide),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
                     ),
-                  Expanded(
-                    child: Padding(
-                      padding: EdgeInsets.fromLTRB(
-                        wide ? 26 : 15,
-                        wide ? 18 : 10,
-                        wide ? 26 : 15,
-                        wide ? 22 : 15,
-                      ),
-                      child: Column(
-                        children: <Widget>[
-                          _NodeHeader(controller: widget.controller),
-                          const SizedBox(height: 16),
-                          Expanded(child: _buildSection(wide: wide)),
-                        ],
-                      ),
-                    ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
           );
@@ -423,6 +457,8 @@ class _SidebarDestination extends StatelessWidget {
               color: Colors.transparent,
               child: InkWell(
                 onTap: onTap,
+                hoverColor: const Color(0x1263E6BE),
+                splashColor: const Color(0x2263E6BE),
                 borderRadius: BorderRadius.circular(12),
                 child: AnimatedContainer(
                   duration: const Duration(milliseconds: 160),
@@ -439,10 +475,14 @@ class _SidebarDestination extends StatelessWidget {
                   ),
                   child: Row(
                     children: <Widget>[
-                      Icon(
-                        section.icon,
-                        size: 18,
-                        color: selected ? _mint : const Color(0xFF8390A5),
+                      AnimatedScale(
+                        duration: const Duration(milliseconds: 160),
+                        scale: selected ? 1.08 : 1,
+                        child: Icon(
+                          section.icon,
+                          size: 18,
+                          color: selected ? _mint : const Color(0xFF8390A5),
+                        ),
                       ),
                       const SizedBox(width: 11),
                       Expanded(
@@ -458,8 +498,10 @@ class _SidebarDestination extends StatelessWidget {
                           ),
                         ),
                       ),
-                      if (selected)
-                        Container(
+                      AnimatedOpacity(
+                        duration: const Duration(milliseconds: 150),
+                        opacity: selected ? 1 : 0,
+                        child: Container(
                           width: 6,
                           height: 6,
                           decoration: const BoxDecoration(
@@ -467,6 +509,7 @@ class _SidebarDestination extends StatelessWidget {
                             shape: BoxShape.circle,
                           ),
                         ),
+                      ),
                     ],
                   ),
                 ),
@@ -495,10 +538,23 @@ class _SidebarNodeStatus extends StatelessWidget {
       ),
       child: Row(
         children: <Widget>[
-          Container(
+          AnimatedContainer(
+            duration: const Duration(milliseconds: 220),
+            curve: Curves.easeOut,
             width: 8,
             height: 8,
-            decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+            decoration: BoxDecoration(
+              color: color,
+              shape: BoxShape.circle,
+              boxShadow: online
+                  ? const <BoxShadow>[
+                      BoxShadow(
+                        color: Color(0x4D63E6BE),
+                        blurRadius: 8,
+                      ),
+                    ]
+                  : const <BoxShadow>[],
+            ),
           ),
           const SizedBox(width: 9),
           Expanded(
@@ -635,14 +691,29 @@ class _MetricCard extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(height: 4),
-                  Text(
-                    value,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      color: Color(0xFFE8EDF5),
-                      fontSize: 17,
-                      fontWeight: FontWeight.w800,
+                  AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 220),
+                    switchInCurve: Curves.easeOutCubic,
+                    transitionBuilder: (child, animation) => FadeTransition(
+                      opacity: animation,
+                      child: SlideTransition(
+                        position: Tween<Offset>(
+                          begin: const Offset(0, .12),
+                          end: Offset.zero,
+                        ).animate(animation),
+                        child: child,
+                      ),
+                    ),
+                    child: Text(
+                      value,
+                      key: ValueKey<String>(value),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Color(0xFFE8EDF5),
+                        fontSize: 17,
+                        fontWeight: FontWeight.w800,
+                      ),
                     ),
                   ),
                   const SizedBox(height: 2),
@@ -2972,7 +3043,7 @@ class _EmptyState extends StatelessWidget {
       );
 }
 
-class _GlassPanel extends StatelessWidget {
+class _GlassPanel extends StatefulWidget {
   const _GlassPanel({
     required this.child,
     this.padding = const EdgeInsets.all(15),
@@ -2982,19 +3053,44 @@ class _GlassPanel extends StatelessWidget {
   final EdgeInsetsGeometry padding;
 
   @override
-  Widget build(BuildContext context) => Container(
-        padding: padding,
-        decoration: BoxDecoration(
-          color: _panel,
-          borderRadius: BorderRadius.circular(18),
-          border: Border.all(color: const Color(0xE6253247)),
-          boxShadow: const <BoxShadow>[
-            BoxShadow(color: Color(0x22000000), blurRadius: 20, offset: Offset(0, 8)),
-          ],
-        ),
-        child: Material(
-          color: Colors.transparent,
-          child: child,
+  State<_GlassPanel> createState() => _GlassPanelState();
+}
+
+class _GlassPanelState extends State<_GlassPanel> {
+  bool _hovered = false;
+
+  @override
+  Widget build(BuildContext context) => MouseRegion(
+        onEnter: (_) => setState(() => _hovered = true),
+        onExit: (_) => setState(() => _hovered = false),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 180),
+          curve: Curves.easeOutCubic,
+          transform: Matrix4.translationValues(0, _hovered ? -2 : 0, 0),
+          transformAlignment: Alignment.center,
+          padding: widget.padding,
+          decoration: BoxDecoration(
+            color: _panel,
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(
+              color: _hovered
+                  ? const Color(0x7063E6BE)
+                  : const Color(0xE6253247),
+            ),
+            boxShadow: <BoxShadow>[
+              BoxShadow(
+                color: _hovered
+                    ? const Color(0x1C63E6BE)
+                    : const Color(0x22000000),
+                blurRadius: _hovered ? 25 : 20,
+                offset: Offset(0, _hovered ? 10 : 8),
+              ),
+            ],
+          ),
+          child: Material(
+            color: Colors.transparent,
+            child: widget.child,
+          ),
         ),
       );
 }

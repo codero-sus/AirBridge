@@ -140,6 +140,14 @@ class _AirbridgeAppState extends State<AirbridgeApp> {
               borderSide: const BorderSide(color: Color(0xFF63E6BE)),
             ),
           ),
+          snackBarTheme: const SnackBarThemeData(
+            behavior: SnackBarBehavior.floating,
+            backgroundColor: Color(0xFF172235),
+            contentTextStyle: TextStyle(color: Color(0xFFE8EDF5)),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.all(Radius.circular(13)),
+            ),
+          ),
         ),
         home: DashboardPage(controller: _controller),
       );
