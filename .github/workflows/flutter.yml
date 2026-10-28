@@ -1,0 +1,290 @@
+name: Flutter CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  analyze-test-android:
+    name: Analyze, test, and build Android APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    defaults:
+      run:
+        working-directory: airbridge_mobile
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      - name: Set up Flutter stable
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Bootstrap platform projects and resolve dependencies
+        run: bash ./tool/bootstrap_platforms.sh
+
+      - name: Report dependency-resolution diagnostics on bootstrap failure
+        if: failure()
+        shell: bash
+        run: |
+          set +e
+          flutter pub get --verbose > "$RUNNER_TEMP/airbridge-pub-get.log" 2>&1
+          pub_exit=$?
+          if [[ "$pub_exit" -eq 0 ]]; then
+            echo "::warning::Standalone flutter pub get succeeded; inspect the earlier bootstrap step."
+            exit 0
+          fi
+          python3 - "$RUNNER_TEMP/airbridge-pub-get.log" <<'PY'
+          import pathlib
+          import sys
+
+          lines = pathlib.Path(sys.argv[1]).read_text(errors="replace").splitlines()
+          markers = ("version solving failed", "because ", "error:", "err :", "failed to", "could not")
+          matches = [line for line in lines if any(marker in line.lower() for marker in markers)]
+          details = "\n".join(matches[-60:] if matches else lines[-100:])
+          escaped = details.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+          print("::error title=Flutter dependency resolution failed::" + escaped)
+          PY
+
+      - name: Analyze Dart sources
+        shell: bash
+        run: |
+          set +e
+          flutter analyze 2>&1 | tee /tmp/flutter-analyze.log
+          analyze_exit=${PIPESTATUS[0]}
+          if [[ $analyze_exit -ne 0 ]]; then
+            while IFS= read -r diagnostic; do
+              [[ -z "$diagnostic" ]] || echo "::error::$diagnostic"
+            done < /tmp/flutter-analyze.log
+          fi
+          exit "$analyze_exit"
+
+      - name: Run unit tests
+        shell: bash
+        run: |
+          set +e
+          flutter test --reporter expanded 2>&1 | tee /tmp/flutter-test.log
+          test_exit=${PIPESTATUS[0]}
+          if [[ $test_exit -ne 0 ]]; then
+            diagnostics=$(grep -a -E -B 3 -A 25 'EXCEPTION CAUGHT|TestFailure|Expected:|Actual:|Test failed|Some tests failed|FILE_TRANSFER_GATEWAY_SEND_ERROR|HttpException|SocketException|TimeoutException' /tmp/flutter-test.log | tail -n 100 | tr '\n' ' ')
+            if [[ -z "$diagnostics" ]]; then
+              diagnostics=$(tail -n 25 /tmp/flutter-test.log | tr '\n' ' ')
+            fi
+            echo "::error title=Flutter test failure::$diagnostics"
+          fi
+          exit "$test_exit"
+
+      - name: Build Android debug APK
+        run: flutter build apk --debug
+
+      - name: Build Android release APK
+        run: flutter build apk --release
+
+      - name: Stage Android APK for workflow downloads
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/release-assets"
+          cp build/app/outputs/flutter-apk/app-release.apk "$RUNNER_TEMP/release-assets/Airbridge-Android.apk"
+
+      - name: Upload Android APK artifact
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+        with:
+          name: airbridge-ci-android
+          path: ${{ runner.temp }}/release-assets/Airbridge-Android.apk
+          if-no-files-found: error
+          retention-days: 7
+
+  build-desktop-and-ios:
+    name: Build ${{ matrix.target }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-22.04
+            target: linux
+          - os: windows-latest
+            target: windows
+          - os: macos-latest
+            target: macos
+          - os: macos-latest
+            target: ios
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: airbridge_mobile
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      - name: Set up Flutter stable
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Install Linux desktop dependencies
+        if: matrix.target == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev patchelf desktop-file-utils curl libfuse2 imagemagick bluez
+
+      - name: Bootstrap platform projects (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: .\tool\bootstrap_platforms.ps1
+
+      - name: Bootstrap platform projects (Linux/macOS)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: bash ./tool/bootstrap_platforms.sh
+
+      - name: Build Linux desktop
+        if: matrix.target == 'linux'
+        run: flutter build linux --release
+
+      - name: Smoke-test Linux AppImage packaging
+        if: matrix.target == 'linux'
+        run: ./tool/package_linux_appimage.sh "$RUNNER_TEMP/release-assets"
+
+      - name: Build Windows desktop
+        if: matrix.target == 'windows'
+        run: flutter build windows --release
+
+      - name: Install Inno Setup for installer packaging validation
+        if: matrix.target == 'windows'
+        shell: pwsh
+        run: choco install innosetup --yes --no-progress
+
+      - name: Smoke-test full Windows installer packaging
+        if: matrix.target == 'windows'
+        shell: pwsh
+        run: |
+          $versionLine = Get-Content pubspec.yaml | Where-Object { $_ -match '^version:' } | Select-Object -First 1
+          $versionMatch = [regex]::Match($versionLine, '^version:\s*(\d+\.\d+\.\d+)')
+          if (-not $versionMatch.Success) {
+              throw 'Could not read X.Y.Z from pubspec.yaml version.'
+          }
+          $appVersion = $versionMatch.Groups[1].Value
+          .\tool\package_windows_installer.ps1 -AppVersion $appVersion -OutputDirectory (Join-Path $env:RUNNER_TEMP 'release-assets')
+
+      - name: Smoke-test silent per-user Windows installation
+        if: matrix.target == 'windows'
+        shell: pwsh
+        run: |
+          $versionLine = Get-Content pubspec.yaml | Where-Object { $_ -match '^version:' } | Select-Object -First 1
+          $versionMatch = [regex]::Match($versionLine, '^version:\s*(\d+\.\d+\.\d+)')
+          if (-not $versionMatch.Success) { throw 'Could not read X.Y.Z from pubspec.yaml version.' }
+          $appVersion = $versionMatch.Groups[1].Value
+          $installer = Join-Path $env:RUNNER_TEMP "release-assets\Airbridge-Windows-Setup-$appVersion.exe"
+          $installDirectory = Join-Path $env:RUNNER_TEMP 'Airbridge user install smoke test'
+          $install = Start-Process -FilePath $installer -ArgumentList @(
+            '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', "/DIR=`"$installDirectory`""
+          ) -Wait -PassThru
+          if ($install.ExitCode -ne 0) { throw "Silent per-user installation failed: $($install.ExitCode)" }
+          if (-not (Test-Path (Join-Path $installDirectory 'airbridge_mobile.exe'))) {
+            throw 'The silent installer did not deploy the Flutter executable.'
+          }
+          $uninstaller = Join-Path $installDirectory 'unins000.exe'
+          $uninstall = Start-Process -FilePath $uninstaller -ArgumentList @(
+            '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART'
+          ) -Wait -PassThru
+          if ($uninstall.ExitCode -ne 0) { throw "Silent uninstall failed: $($uninstall.ExitCode)" }
+
+      - name: Build macOS desktop
+        if: matrix.target == 'macos'
+        run: flutter build macos --release
+
+      - name: Smoke-test macOS DMG packaging
+        if: matrix.target == 'macos'
+        run: ./tool/package_macos_dmg.sh "$RUNNER_TEMP/release-assets"
+
+      - name: Build iOS (unsigned)
+        if: matrix.target == 'ios'
+        run: flutter build ios --release --no-codesign
+
+      - name: Archive unsigned iOS app for CI download
+        if: matrix.target == 'ios'
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -d build/ios/iphoneos/Runner.app
+          mkdir -p "$RUNNER_TEMP/release-assets"
+          tar -czf "$RUNNER_TEMP/release-assets/Airbridge-iOS-unsigned.app.tar.gz" \
+            -C build/ios/iphoneos Runner.app
+
+      - name: Upload unsigned iOS CI artifact
+        if: matrix.target == 'ios'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+        with:
+          name: airbridge-ci-ios-unsigned
+          path: ${{ runner.temp }}/release-assets/Airbridge-iOS-unsigned.app.tar.gz
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Upload Linux AppImage artifact
+        if: matrix.target == 'linux'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+        with:
+          name: airbridge-ci-linux
+          path: ${{ runner.temp }}/release-assets/Airbridge-Linux-x86_64.AppImage
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Upload Windows installer artifact
+        if: matrix.target == 'windows'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+        with:
+          name: airbridge-ci-windows
+          path: ${{ runner.temp }}/release-assets/Airbridge-Windows-Setup-*.exe
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Upload macOS disk image artifact
+        if: matrix.target == 'macos'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+        with:
+          name: airbridge-ci-macos
+          path: ${{ runner.temp }}/release-assets/Airbridge-macOS.dmg
+          if-no-files-found: error
+          retention-days: 7
+
+  bundle-platform-artifacts:
+    name: Bundle platform downloads
+    needs:
+      - analyze-test-android
+      - build-desktop-and-ios
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      - name: Download platform build artifacts
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8.0.2
+        with:
+          pattern: airbridge-ci-*
+          path: ${{ runner.temp }}/platform-assets
+          merge-multiple: true
+
+      - name: Package native downloads and checksums into one ZIP
+        run: >-
+          python3 airbridge_mobile/tool/package_platform_bundle.py
+          --assets-dir "${{ runner.temp }}/platform-assets"
+          --output "${{ runner.temp }}/Airbridge-All-Platforms.zip"
+
+      - name: Upload combined platform bundle
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+        with:
+          path: ${{ runner.temp }}/Airbridge-All-Platforms.zip
+          archive: false
+          if-no-files-found: error
+          retention-days: 7

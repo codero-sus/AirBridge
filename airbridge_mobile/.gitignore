@@ -1,0 +1,25 @@
+.dart_tool/
+.metadata
+__pycache__/
+*.py[cod]
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+.pub-cache/
+build/
+coverage/
+
+# Generated native project files and local SDK configuration
+android/local.properties
+android/.gradle/
+ios/Flutter/Generated.xcconfig
+ios/Flutter/flutter_export_environment.sh
+macos/Flutter/GeneratedPluginRegistrant.swift
+windows/flutter/ephemeral/
+linux/flutter/ephemeral/
+
+# Local signing material and app data
+*.jks
+*.keystore
+key.properties
+.DS_Store
